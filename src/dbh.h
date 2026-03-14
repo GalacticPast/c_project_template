@@ -80,6 +80,156 @@ typedef s8 bool;
 #define MB(n) ((s32)n * 1024 * 1024)
 #define GB(n) ((s32)n * 1024 * 1024 * 1024)
 
+#define pi32               3.1415926535897f
+#define machine_epsilon64  4.94065645841247e-324
+
+#define max_U64            0xffffffffffffffffull
+#define max_U32            0xffffffff
+#define max_U16            0xffff
+#define max_U8             0xff
+
+#define max_s64            ((s64)0x7fffffffffffffffll)
+#define max_s32            ((s32)0x7fffffff)
+#define max_s16            ((s16)0x7fff)
+#define max_s8             ((s8)0x7f)
+
+#define min_s64            ((s64)0x8000000000000000ll)
+#define min_s32            ((s32)0x80000000)
+#define min_s16            ((s16)0x8000)
+#define min_s8             ((s8)0x80)
+
+#define bitmask1  0x00000001
+#define bitmask2  0x00000003
+#define bitmask3  0x00000007
+#define bitmask4  0x0000000f
+#define bitmask5  0x0000001f
+#define bitmask6  0x0000003f
+#define bitmask7  0x0000007f
+#define bitmask8  0x000000ff
+#define bitmask9  0x000001ff
+#define bitmask10 0x000003ff
+#define bitmask11 0x000007ff
+#define bitmask12 0x00000fff
+#define bitmask13 0x00001fff
+#define bitmask14 0x00003fff
+#define bitmask15 0x00007fff
+#define bitmask16 0x0000ffff
+#define bitmask17 0x0001ffff
+#define bitmask18 0x0003ffff
+#define bitmask19 0x0007ffff
+#define bitmask20 0x000fffff
+#define bitmask21 0x001fffff
+#define bitmask22 0x003fffff
+#define bitmask23 0x007fffff
+#define bitmask24 0x00ffffff
+#define bitmask25 0x01ffffff
+#define bitmask26 0x03ffffff
+#define bitmask27 0x07ffffff
+#define bitmask28 0x0fffffff
+#define bitmask29 0x1fffffff
+#define bitmask30 0x3fffffff
+#define bitmask31 0x7fffffff
+#define bitmask32 0xffffffff
+
+#define bitmask33 0x00000001ffffffffull
+#define bitmask34 0x00000003ffffffffull
+#define bitmask35 0x00000007ffffffffull
+#define bitmask36 0x0000000fffffffffull
+#define bitmask37 0x0000001fffffffffull
+#define bitmask38 0x0000003fffffffffull
+#define bitmask39 0x0000007fffffffffull
+#define bitmask40 0x000000ffffffffffull
+#define bitmask41 0x000001ffffffffffull
+#define bitmask42 0x000003ffffffffffull
+#define bitmask43 0x000007ffffffffffull
+#define bitmask44 0x00000fffffffffffull
+#define bitmask45 0x00001fffffffffffull
+#define bitmask46 0x00003fffffffffffull
+#define bitmask47 0x00007fffffffffffull
+#define bitmask48 0x0000ffffffffffffull
+#define bitmask49 0x0001ffffffffffffull
+#define bitmask50 0x0003ffffffffffffull
+#define bitmask51 0x0007ffffffffffffull
+#define bitmask52 0x000fffffffffffffull
+#define bitmask53 0x001fffffffffffffull
+#define bitmask54 0x003fffffffffffffull
+#define bitmask55 0x007fffffffffffffull
+#define bitmask56 0x00ffffffffffffffull
+#define bitmask57 0x01ffffffffffffffull
+#define bitmask58 0x03ffffffffffffffull
+#define bitmask59 0x07ffffffffffffffull
+#define bitmask60 0x0fffffffffffffffull
+#define bitmask61 0x1fffffffffffffffull
+#define bitmask62 0x3fffffffffffffffull
+#define bitmask63 0x7fffffffffffffffull
+#define bitmask64 0xffffffffffffffffull
+
+#define bit1  (1u<<0)
+#define bit2  (1u<<1)
+#define bit3  (1u<<2)
+#define bit4  (1u<<3)
+#define bit5  (1u<<4)
+#define bit6  (1u<<5)
+#define bit7  (1u<<6)
+#define bit8  (1u<<7)
+#define bit9  (1u<<8)
+#define bit10 (1u<<9)
+#define bit11 (1u<<10)
+#define bit12 (1u<<11)
+#define bit13 (1u<<12)
+#define bit14 (1u<<13)
+#define bit15 (1u<<14)
+#define bit16 (1u<<15)
+#define bit17 (1u<<16)
+#define bit18 (1u<<17)
+#define bit19 (1u<<18)
+#define bit20 (1u<<19)
+#define bit21 (1u<<20)
+#define bit22 (1u<<21)
+#define bit23 (1u<<22)
+#define bit24 (1u<<23)
+#define bit25 (1u<<24)
+#define bit26 (1u<<25)
+#define bit27 (1u<<26)
+#define bit28 (1u<<27)
+#define bit29 (1u<<28)
+#define bit30 (1u<<29)
+#define bit31 (1u<<30)
+#define bit32 (1u<<31)
+
+#define bit33 (1ull<<32)
+#define bit34 (1ull<<33)
+#define bit35 (1ull<<34)
+#define bit36 (1ull<<35)
+#define bit37 (1ull<<36)
+#define bit38 (1ull<<37)
+#define bit39 (1ull<<38)
+#define bit40 (1ull<<39)
+#define bit41 (1ull<<40)
+#define bit42 (1ull<<41)
+#define bit43 (1ull<<42)
+#define bit44 (1ull<<43)
+#define bit45 (1ull<<44)
+#define bit46 (1ull<<45)
+#define bit47 (1ull<<46)
+#define bit48 (1ull<<47)
+#define bit49 (1ull<<48)
+#define bit50 (1ull<<49)
+#define bit51 (1ull<<50)
+#define bit52 (1ull<<51)
+#define bit53 (1ull<<52)
+#define bit54 (1ull<<53)
+#define bit55 (1ull<<54)
+#define bit56 (1ull<<55)
+#define bit57 (1ull<<56)
+#define bit58 (1ull<<57)
+#define bit59 (1ull<<58)
+#define bit60 (1ull<<59)
+#define bit61 (1ull<<60)
+#define bit62 (1ull<<61)
+#define bit63 (1ull<<62)
+#define bit64 (1ull<<63)
+
 // thanks google https://github.com/google/sanitizers/wiki/AddressSanitizerManualPoisoning
 // User code should use macros instead of functions.
 #if __has_feature(address_sanitizer) || defined(__SANITIZE_ADDRESS__)
