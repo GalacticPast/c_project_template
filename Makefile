@@ -21,7 +21,7 @@ else
 	SRC       := src
 	BIN       := bin
 	CC        := clang
-	ASSEMBLY  := 
+	ASSEMBLY  := temp 
 	EXTENSION := 
 
 	INCLUDES     := 
@@ -42,4 +42,8 @@ else
 endif
 
 compile: 
+ifeq ($(ASSEMBLY),)
+	$(error Please name the executable. Variable ASSEMBLY is empty.)
+else
 	$(CC) $(SRC_FILES) $(COMPILER_FLAGS) -o $(BIN)/$(ASSEMBLY)$(EXTENSION) $(INCLUDES) $(LINKER_FLAGS)
+endif

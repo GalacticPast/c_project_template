@@ -1,6 +1,9 @@
 #pragma once
 
 #ifdef DBH_IMPLEMENTATION
+
+// asci art font : rubi_font https://patorjk.com/software/taag
+
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -80,33 +83,33 @@ typedef s8 bool;
 #define MB(n) ((s32)n * 1024 * 1024)
 #define GB(n) ((s32)n * 1024 * 1024 * 1024)
 
-#define pi32               3.1415926535897f
-#define machine_epsilon64  4.94065645841247e-324
+#define pi32 3.1415926535897f
+#define machine_epsilon64 4.94065645841247e-324
 
-#define max_U64            0xffffffffffffffffull
-#define max_U32            0xffffffff
-#define max_U16            0xffff
-#define max_U8             0xff
+#define max_U64 0xffffffffffffffffull
+#define max_U32 0xffffffff
+#define max_U16 0xffff
+#define max_U8 0xff
 
-#define max_s64            ((s64)0x7fffffffffffffffll)
-#define max_s32            ((s32)0x7fffffff)
-#define max_s16            ((s16)0x7fff)
-#define max_s8             ((s8)0x7f)
+#define max_s64 ((s64)0x7fffffffffffffffll)
+#define max_s32 ((s32)0x7fffffff)
+#define max_s16 ((s16)0x7fff)
+#define max_s8 ((s8)0x7f)
 
-#define min_s64            ((s64)0x8000000000000000ll)
-#define min_s32            ((s32)0x80000000)
-#define min_s16            ((s16)0x8000)
-#define min_s8             ((s8)0x80)
+#define min_s64 ((s64)0x8000000000000000ll)
+#define min_s32 ((s32)0x80000000)
+#define min_s16 ((s16)0x8000)
+#define min_s8 ((s8)0x80)
 
-#define bitmask1  0x00000001
-#define bitmask2  0x00000003
-#define bitmask3  0x00000007
-#define bitmask4  0x0000000f
-#define bitmask5  0x0000001f
-#define bitmask6  0x0000003f
-#define bitmask7  0x0000007f
-#define bitmask8  0x000000ff
-#define bitmask9  0x000001ff
+#define bitmask1 0x00000001
+#define bitmask2 0x00000003
+#define bitmask3 0x00000007
+#define bitmask4 0x0000000f
+#define bitmask5 0x0000001f
+#define bitmask6 0x0000003f
+#define bitmask7 0x0000007f
+#define bitmask8 0x000000ff
+#define bitmask9 0x000001ff
 #define bitmask10 0x000003ff
 #define bitmask11 0x000007ff
 #define bitmask12 0x00000fff
@@ -164,71 +167,71 @@ typedef s8 bool;
 #define bitmask63 0x7fffffffffffffffull
 #define bitmask64 0xffffffffffffffffull
 
-#define bit1  (1u<<0)
-#define bit2  (1u<<1)
-#define bit3  (1u<<2)
-#define bit4  (1u<<3)
-#define bit5  (1u<<4)
-#define bit6  (1u<<5)
-#define bit7  (1u<<6)
-#define bit8  (1u<<7)
-#define bit9  (1u<<8)
-#define bit10 (1u<<9)
-#define bit11 (1u<<10)
-#define bit12 (1u<<11)
-#define bit13 (1u<<12)
-#define bit14 (1u<<13)
-#define bit15 (1u<<14)
-#define bit16 (1u<<15)
-#define bit17 (1u<<16)
-#define bit18 (1u<<17)
-#define bit19 (1u<<18)
-#define bit20 (1u<<19)
-#define bit21 (1u<<20)
-#define bit22 (1u<<21)
-#define bit23 (1u<<22)
-#define bit24 (1u<<23)
-#define bit25 (1u<<24)
-#define bit26 (1u<<25)
-#define bit27 (1u<<26)
-#define bit28 (1u<<27)
-#define bit29 (1u<<28)
-#define bit30 (1u<<29)
-#define bit31 (1u<<30)
-#define bit32 (1u<<31)
+#define bit1 (1u << 0)
+#define bit2 (1u << 1)
+#define bit3 (1u << 2)
+#define bit4 (1u << 3)
+#define bit5 (1u << 4)
+#define bit6 (1u << 5)
+#define bit7 (1u << 6)
+#define bit8 (1u << 7)
+#define bit9 (1u << 8)
+#define bit10 (1u << 9)
+#define bit11 (1u << 10)
+#define bit12 (1u << 11)
+#define bit13 (1u << 12)
+#define bit14 (1u << 13)
+#define bit15 (1u << 14)
+#define bit16 (1u << 15)
+#define bit17 (1u << 16)
+#define bit18 (1u << 17)
+#define bit19 (1u << 18)
+#define bit20 (1u << 19)
+#define bit21 (1u << 20)
+#define bit22 (1u << 21)
+#define bit23 (1u << 22)
+#define bit24 (1u << 23)
+#define bit25 (1u << 24)
+#define bit26 (1u << 25)
+#define bit27 (1u << 26)
+#define bit28 (1u << 27)
+#define bit29 (1u << 28)
+#define bit30 (1u << 29)
+#define bit31 (1u << 30)
+#define bit32 (1u << 31)
 
-#define bit33 (1ull<<32)
-#define bit34 (1ull<<33)
-#define bit35 (1ull<<34)
-#define bit36 (1ull<<35)
-#define bit37 (1ull<<36)
-#define bit38 (1ull<<37)
-#define bit39 (1ull<<38)
-#define bit40 (1ull<<39)
-#define bit41 (1ull<<40)
-#define bit42 (1ull<<41)
-#define bit43 (1ull<<42)
-#define bit44 (1ull<<43)
-#define bit45 (1ull<<44)
-#define bit46 (1ull<<45)
-#define bit47 (1ull<<46)
-#define bit48 (1ull<<47)
-#define bit49 (1ull<<48)
-#define bit50 (1ull<<49)
-#define bit51 (1ull<<50)
-#define bit52 (1ull<<51)
-#define bit53 (1ull<<52)
-#define bit54 (1ull<<53)
-#define bit55 (1ull<<54)
-#define bit56 (1ull<<55)
-#define bit57 (1ull<<56)
-#define bit58 (1ull<<57)
-#define bit59 (1ull<<58)
-#define bit60 (1ull<<59)
-#define bit61 (1ull<<60)
-#define bit62 (1ull<<61)
-#define bit63 (1ull<<62)
-#define bit64 (1ull<<63)
+#define bit33 (1ull << 32)
+#define bit34 (1ull << 33)
+#define bit35 (1ull << 34)
+#define bit36 (1ull << 35)
+#define bit37 (1ull << 36)
+#define bit38 (1ull << 37)
+#define bit39 (1ull << 38)
+#define bit40 (1ull << 39)
+#define bit41 (1ull << 40)
+#define bit42 (1ull << 41)
+#define bit43 (1ull << 42)
+#define bit44 (1ull << 43)
+#define bit45 (1ull << 44)
+#define bit46 (1ull << 45)
+#define bit47 (1ull << 46)
+#define bit48 (1ull << 47)
+#define bit49 (1ull << 48)
+#define bit50 (1ull << 49)
+#define bit51 (1ull << 50)
+#define bit52 (1ull << 51)
+#define bit53 (1ull << 52)
+#define bit54 (1ull << 53)
+#define bit55 (1ull << 54)
+#define bit56 (1ull << 55)
+#define bit57 (1ull << 56)
+#define bit58 (1ull << 57)
+#define bit59 (1ull << 58)
+#define bit60 (1ull << 59)
+#define bit61 (1ull << 60)
+#define bit62 (1ull << 61)
+#define bit63 (1ull << 62)
+#define bit64 (1ull << 63)
 
 // thanks google https://github.com/google/sanitizers/wiki/AddressSanitizerManualPoisoning
 // User code should use macros instead of functions.
@@ -638,12 +641,37 @@ typedef struct dbh_array_header
         header->count++;                                                                                               \
     } while (0);
 
+#define dbh_array_get_last(Array) ({                                                                                      \
+        ASSERT_WITH_MSG(Array != NULL, "Array is Null");                                                               \
+        __typeof__(*Array) _res;                                                                                     \
+        dbh_array_header *header = dbh_array_get_header(Array);                                                        \
+        ASSERT_WITH_MSG(header != NULL, "Array Header is Null. This is a serius bug :(.");                             \
+        ASSERT_WITH_MSG((header->count > 0), "Array has no elements");                                                 \
+        _res = Array[header->count - 1];                                                                               \
+        })
+
+#define dbh_array_find(Array, elem, func_ptr)                                                                          \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        ASSERT_WITH_MSG(Array != NULL, "Array is Null");                                                               \
+        dbh_array_header *header = dbh_array_get_header(Array);                                                        \
+        ASSERT_WITH_MSG(header != NULL, "Array Header is Null. This is a serius bug :(.");                             \
+        s64 count = header->count;                                                                                     \
+        for (s64 i = 0; i < count; i++)                                                                                \
+        {                                                                                                              \
+            if (func_ptr(Array[i], elem))                                                                              \
+            {                                                                                                          \
+                return Array[i];                                                                                       \
+            }                                                                                                          \
+        }                                                                                                              \
+        return NULL;                                                                                                   \
+    } while (0);
+
 // I dont reset the array's length so it might be wasteful.
 // for example in the first instance we used 1gb data for the array.
 // then we cleared it.  and then we didnt exceed more than a kb of usage for the array.
-// well because we had allocated a gb beforehand the array's total length would be a gb. I dont reset that even if you
-// call dbh_array_clear()
-// WARNING: if possible
+// well because we had allocated a gb beforehand the array's total length would be a gb. I dont reset that even
+// if you call dbh_array_clear() WARNING: if possible
 #define dbh_array_clear(Array)                                                                                         \
     do                                                                                                                 \
     {                                                                                                                  \
@@ -656,19 +684,6 @@ typedef struct dbh_array_header
         }                                                                                                              \
         header->count = 0;                                                                                             \
     } while (0);
-
-/*
-[x] vec_init(v)
-[x] Initialises the vector, this must be called before the vector can be used.
-[X] vec_deinit(v)
-[x] vec_push(v, val)
-[x] vec_pop(v)
-[x] vec_splice(v, start, count)
-[x] vec_insert(v, idx, val)
-[ ] vec_sort(v, fn)
-[X] vec_clear(v)
-[ ] vec_compact(v)
-*/
 
 dbh_return_code __dbh_array_resize(void **array)
 {
@@ -725,13 +740,24 @@ void __dbh_array_free(void **array)
 }
 
 /*
-▗▄▄▄▖▗▄▄▄▖▗▖   ▗▄▄▄▖    ▗▄▄▄▖ ▗▄▖ 
-▐▌     █  ▐▌   ▐▌         █  ▐▌ ▐▌
-▐▛▀▀▘  █  ▐▌   ▐▛▀▀▘      █  ▐▌ ▐▌
-▐▌   ▗▄█▄▖▐▙▄▄▖▐▙▄▄▖    ▗▄█▄▖▝▚▄▞▘
-                                  
- */                                 
+  ▗▄▄▖▗▄▄▄▖▗▄▖  ▗▄▄▖▗▖ ▗▖
+ ▐▌     █ ▐▌ ▐▌▐▌   ▐▌▗▞▘
+  ▝▀▚▖  █ ▐▛▀▜▌▐▌   ▐▛▚▖
+ ▗▄▄▞▘  █ ▐▌ ▐▌▝▚▄▄▖▐▌ ▐▌
 
+*/
 
+#define dbh_stack(Type) dbh_array(Type)
+#define dbh_stack_init(Stack) dbh_array_init(Stack)
+#define dbh_stack_push(Stack, Elem) dbh_array_append(Stack, Elem)
+#define dbh_stack_pop(Stack) dbh_array_pop(Stack)
+#define dbh_stack_peek(Stack) dbh_array_get_last(Stack)
+#define dbh_stack_free(Stack) dbh_array_free(Stack)
+/*
+▗▖ ▗▖ ▗▄▖  ▗▄▄▖▗▖ ▗▖▗▖  ▗▖ ▗▄▖ ▗▄▄▖
+▐▌ ▐▌▐▌ ▐▌▐▌   ▐▌ ▐▌▐▛▚▞▜▌▐▌ ▐▌▐▌ ▐▌
+▐▛▀▜▌▐▛▀▜▌ ▝▀▚▖▐▛▀▜▌▐▌  ▐▌▐▛▀▜▌▐▛▀▘
+▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘▐▌ ▐▌▐▌  ▐▌▐▌ ▐▌▐▌
+*/
 
 #endif
