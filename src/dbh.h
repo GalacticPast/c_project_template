@@ -641,14 +641,15 @@ typedef struct dbh_array_header
         header->count++;                                                                                               \
     } while (0);
 
-#define dbh_array_get_last(Array) ({                                                                                      \
+#define dbh_array_get_last(Array)                                                                                      \
+    ({                                                                                                                 \
         ASSERT_WITH_MSG(Array != NULL, "Array is Null");                                                               \
-        __typeof__(*Array) _res;                                                                                     \
-        dbh_array_header *header = dbh_array_get_header(Array);                                                        \
+        __typeof__(*Array) _res;                                                                                       \
+        dbh_array_header  *header = dbh_array_get_header(Array);                                                       \
         ASSERT_WITH_MSG(header != NULL, "Array Header is Null. This is a serius bug :(.");                             \
         ASSERT_WITH_MSG((header->count > 0), "Array has no elements");                                                 \
         _res = Array[header->count - 1];                                                                               \
-        })
+    })
 
 #define dbh_array_find(Array, elem, func_ptr)                                                                          \
     do                                                                                                                 \
@@ -759,5 +760,28 @@ void __dbh_array_free(void **array)
 ▐▛▀▜▌▐▛▀▜▌ ▝▀▚▖▐▛▀▜▌▐▌  ▐▌▐▛▀▜▌▐▛▀▘
 ▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘▐▌ ▐▌▐▌  ▐▌▐▌ ▐▌▐▌
 */
+
+#define DBH_SIZE_T_BITS ((sizeof(size_t)) * 8)
+
+#define DBH_ROTATE_LEFT(val, n) (((val) << (n)) | ((val) >> (DBH_SIZE_T_BITS - (n))))
+#define DBH_ROTATE_RIGHT(val, n) (((val) >> (n)) | ((val) << (DBH_SIZE_T_BITS - (n))))
+static size_t dbh_hash_seed = 0x31415926;
+
+size_t dbh_hash_string(const char *str, size_t seed)
+{
+    size_t hash = dbh_hash_seed;
+    while (*str)
+        hash = DBH_ROTATE_LEFT(hash, 9) + (unsigned char)*str++;
+
+    // Thomas Wang 64-to-32 bit mix function, hopefully also works in 32 bits
+    hash ^= seed;
+    hash  = (~hash) + (hash << 18);
+    hash ^= hash ^ DBH_ROTATE_RIGHT(hash, 31);
+    hash  = hash * 21;
+    hash ^= hash ^ DBH_ROTATE_RIGHT(hash, 11);
+    hash += (hash << 6);
+    hash ^= DBH_ROTATE_RIGHT(hash, 22);
+    return hash + seed;
+}
 
 #endif
