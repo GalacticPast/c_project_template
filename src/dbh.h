@@ -701,7 +701,7 @@ dbh_return_code __dbh_array_resize(void **array)
 
 dbh_return_code __dbh_array_init(void **array, size_t type_size)
 {
-    dbh_arena arena = DBH_ARENA_INIT();
+    dbh_arena arena = dbh_arena_init();
 
     // maybe a bit wasteful but we've already commited this much isnt it?
     size_t header_plus_array_size = arena.total_size;
@@ -767,21 +767,42 @@ void __dbh_array_free(void **array)
 #define DBH_ROTATE_RIGHT(val, n) (((val) >> (n)) | ((val) << (DBH_SIZE_T_BITS - (n))))
 static size_t dbh_hash_seed = 0x31415926;
 
-size_t dbh_hash_string(const char *str, size_t seed)
-{
-    size_t hash = dbh_hash_seed;
-    while (*str)
-        hash = DBH_ROTATE_LEFT(hash, 9) + (unsigned char)*str++;
+u64 dbh_murmur64_seed(void const *data_, size_t len, u64 seed) {
+	u64 const m = 0xc6a4a7935bd1e995ULL;
+	s32 const r = 47;
 
-    // Thomas Wang 64-to-32 bit mix function, hopefully also works in 32 bits
-    hash ^= seed;
-    hash  = (~hash) + (hash << 18);
-    hash ^= hash ^ DBH_ROTATE_RIGHT(hash, 31);
-    hash  = hash * 21;
-    hash ^= hash ^ DBH_ROTATE_RIGHT(hash, 11);
-    hash += (hash << 6);
-    hash ^= DBH_ROTATE_RIGHT(hash, 22);
-    return hash + seed;
+	u64 h = seed ^ (len * m);
+
+	u64 const *data = (u64 const *)data_;
+	u8  const *data2 = (u8 const *)data_;
+	u64 const* end = data + (len / 8);
+
+	while (data != end) {
+		u64 k = *data++;
+
+		k *= m;
+		k ^= k >> r;
+		k *= m;
+
+		h ^= k;
+		h *= m;
+	}
+
+	switch (len & 7) {
+	case 7: h ^= (u64)(data2[6]) << 48;
+	case 6: h ^= (u64)(data2[5]) << 40;
+	case 5: h ^= (u64)(data2[4]) << 32;
+	case 4: h ^= (u64)(data2[3]) << 24;
+	case 3: h ^= (u64)(data2[2]) << 16;
+	case 2: h ^= (u64)(data2[1]) << 8;
+	case 1: h ^= (u64)(data2[0]);
+		h *= m;
+	};
+
+	h ^= h >> r;
+	h *= m;
+	h ^= h >> r;
+
+	return h;
 }
-
 #endif

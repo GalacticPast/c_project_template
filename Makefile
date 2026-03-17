@@ -21,7 +21,7 @@ else
 	SRC       := src
 	BIN       := bin
 	CC        := clang
-	ASSEMBLY  := temp 
+	ASSEMBLY  := 
 	EXTENSION := 
 
 	INCLUDES     := 
