@@ -8,9 +8,9 @@
 #include <string.h>
 
 #ifdef __win32__
-#define dbh_platform_windows
+#define DBH_PLATFORM_WINDOWS
 #elif __linux__
-#define dbh_platform_linux
+#define DBH_PLATFORM_LINUX
 #include <sanitizer/asan_interface.h>
 #include <sys/mman.h>
 #endif
@@ -46,26 +46,26 @@ typedef s8 b8;
 
 #define debug_break asm("int $3")
 
-#define assert(expr)                                                                                                   \
+#define ASSERT(expr)                                                                                                   \
     {                                                                                                                  \
         do                                                                                                             \
         {                                                                                                              \
             if (!(expr))                                                                                               \
             {                                                                                                          \
-                printf("assertion failure: %s:%d on %s\n", __file__, __line__, #expr);                                 \
+                printf("ASSERTion failure: %s:%d on %s\n", __FILE__, __LINE__, #expr);                                 \
                 debug_break;                                                                                           \
             }                                                                                                          \
         } while (0);                                                                                                   \
     }
 
-#define assert_with_msg(expr, msg)                                                                                     \
+#define ASSERT_WITH_MSG(expr, msg)                                                                                     \
     {                                                                                                                  \
         do                                                                                                             \
         {                                                                                                              \
             if (!(expr))                                                                                               \
             {                                                                                                          \
                 printf("%s\n.", msg);                                                                                  \
-                printf("assertion failure: %s:%d on %s\n", __file__, __line__, #expr);                                 \
+                printf("ASSERTion failure: %s:%d on %s\n", __FILE__, __LINE__, #expr);                                 \
                 debug_break;                                                                                           \
             }                                                                                                          \
         } while (0);                                                                                                   \
@@ -244,16 +244,9 @@ typedef s8 b8;
 
 typedef enum dbh_return_code
 {
-    dbh_error   = 0,
-    dbh_success = 1,
+    DBH_ERROR   = 0,
+    DBH_SUCCESS = 1,
 } dbh_return_code;
-
-/*
- ▗▄▖ ▗▄▄▖ ▗▄▄▄▖▗▖  ▗▖ ▗▄▖  ▗▄▄▖
-▐▌ ▐▌▐▌ ▐▌▐▌   ▐▛▚▖▐▌▐▌ ▐▌▐▌
-▐▛▀▜▌▐▛▀▚▖▐▛▀▀▘▐▌ ▝▜▌▐▛▀▜▌ ▝▀▚▖
-▐▌ ▐▌▐▌ ▐▌▐▙▄▄▖▐▌  ▐▌▐▌ ▐▌▗▄▄▞▘
-*/
 
 typedef struct dbh_arena
 {
@@ -304,9 +297,9 @@ typedef struct dbh_array_header
 #define dbh_array_append(array, element)                                                                               \
     do                                                                                                                 \
     {                                                                                                                  \
-        assert_with_msg(array != null, "array is null");                                                               \
+        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
         dbh_array_header *header = dbh_array_get_header(array);                                                        \
-        assert_with_msg(header != null, "array header is null. this is a serius bug :(.");                             \
+        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
         if (header->count + 1 >= header->total_length)                                                                 \
         {                                                                                                              \
             __dbh_array_resize((void **)&array);                                                                       \
@@ -317,10 +310,10 @@ typedef struct dbh_array_header
 #define dbh_array_pop(array)                                                                                           \
     do                                                                                                                 \
     {                                                                                                                  \
-        assert_with_msg(array != null, "array is null");                                                               \
+        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
         dbh_array_header *header = dbh_array_get_header(array);                                                        \
-        assert_with_msg(header != null, "array header is null. ");                                                     \
-        assert_with_msg(header->count != 0, "array has no elements yet.");                                             \
+        ASSERT_WITH_MSG(header != NULL, "array header is NULL. ");                                                     \
+        ASSERT_WITH_MSG(header->count != 0, "array has no elements yet.");                                             \
         header->count--;                                                                                               \
     } while (0);
 
@@ -332,10 +325,10 @@ typedef struct dbh_array_header
 #define dbh_array_remove_range(array, start, num_elems)                                                                \
     do                                                                                                                 \
     {                                                                                                                  \
-        assert_with_msg(array != null, "array is null");                                                               \
+        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
         dbh_array_header *header = dbh_array_get_header(array);                                                        \
-        assert_with_msg(header != null, "array header is null. this is a serius bug :(.");                             \
-        assert_with_msg((start) < header->count, "starting index is greater than array length");                       \
+        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
+        ASSERT_WITH_MSG((start) < header->count, "starting index is greater than array length");                       \
         /*get the remaining length of the array after start + num_elems                                                \
          *  for example: start = 2, num_elems = 3, v = n0 n1 n2 n3 n4 n5 n6 ... n                                      \
          *     v = n0 n1 n2 n3 n4 n5 n6 ...    we want to remove elmems n2, n3, n4                                     \
@@ -343,7 +336,7 @@ typedef struct dbh_array_header
          * length of the whole array - the length from the starting of array up to the last element we want to remove  \
          * */                                                                                                          \
         s64 rem_length = header->count - ((start) + (num_elems));                                                      \
-        assert(rem_length >= 0);                                                                                       \
+        ASSERT(rem_length >= 0);                                                                                       \
         memmove(&array[(start)], &array[(start) + (num_elems)], rem_length * header->type_size);                       \
         header->count -= num_elems;                                                                                    \
         memset(&array[header->count], 0, num_elems * header->type_size);                                               \
@@ -352,10 +345,10 @@ typedef struct dbh_array_header
 #define dbh_array_insert(array, index, element)                                                                        \
     do                                                                                                                 \
     {                                                                                                                  \
-        assert_with_msg(array != null, "array is null");                                                               \
+        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
         dbh_array_header *header = dbh_array_get_header(array);                                                        \
-        assert_with_msg(header != null, "array header is null. this is a serius bug :(.");                             \
-        assert_with_msg((index < header->count), "index out of bounds");                                               \
+        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
+        ASSERT_WITH_MSG((index < header->count), "index out of bounds");                                               \
         if (header->count + 1 >= header->total_length)                                                                 \
         {                                                                                                              \
             __dbh_array_resize((void **)&array);                                                                       \
@@ -368,11 +361,11 @@ typedef struct dbh_array_header
 
 #define dbh_array_get_last(array)                                                                                      \
     ({                                                                                                                 \
-        assert_with_msg(array != null, "array is null");                                                               \
+        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
         __typeof__(*array) _res;                                                                                       \
         dbh_array_header  *header = dbh_array_get_header(array);                                                       \
-        assert_with_msg(header != null, "array header is null. this is a serius bug :(.");                             \
-        assert_with_msg((header->count > 0), "array has no elements");                                                 \
+        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
+        ASSERT_WITH_MSG((header->count > 0), "array has no elements");                                                 \
         _res = array[header->count - 1];                                                                               \
     })
 
@@ -381,10 +374,10 @@ typedef struct dbh_array_header
 
 #define dbh_array_find(array, elem, func_ptr)                                                                          \
     ({                                                                                                                 \
-        assert_with_msg(array != null, "array is null");                                                               \
-        __typeof__(array) _res   = null;                                                                               \
+        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
+        __typeof__(array) _res   = NULL;                                                                               \
         dbh_array_header *header = dbh_array_get_header(array);                                                        \
-        assert_with_msg(header != null, "array header is null. this is a serius bug :(.");                             \
+        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
         s64 count = header->count;                                                                                     \
         for (s64 i = 0; i < count; i++)                                                                                \
         {                                                                                                              \
@@ -404,9 +397,9 @@ typedef struct dbh_array_header
 #define dbh_array_clear(array)                                                                                         \
     do                                                                                                                 \
     {                                                                                                                  \
-        assert_with_msg(array != null, "array is null");                                                               \
+        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
         dbh_array_header *header = dbh_array_get_header(array);                                                        \
-        assert_with_msg(header != null, "array header is null. this is a serius bug :(.");                             \
+        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
         if (header->count > 0)                                                                                         \
         {                                                                                                              \
             memset((void *)array, 0, header->count * header->type_size);                                               \
@@ -429,18 +422,8 @@ typedef struct dbh_array_header
 #define dbh_stack_peek(stack) dbh_array_get_last(stack)
 #define dbh_stack_free(stack) dbh_array_free(stack)
 
-/*
-▗▖ ▗▖ ▗▄▖  ▗▄▄▖▗▖ ▗▖▗▖  ▗▖ ▗▄▖ ▗▄▄▖
-▐▌ ▐▌▐▌ ▐▌▐▌   ▐▌ ▐▌▐▛▚▞▜▌▐▌ ▐▌▐▌ ▐▌
-▐▛▀▜▌▐▛▀▜▌ ▝▀▚▖▐▛▀▜▌▐▌  ▐▌▐▛▀▜▌▐▛▀▘
-▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘▐▌ ▐▌▐▌  ▐▌▐▌ ▐▌▐▌
-*/
 static size_t dbh_hash_seed = 0x31415926;
 #define dbh_hash_string(data) dbh_murmur64_seed(data, strlen(data), dbh_hash_seed)
-#define dbh_size_t_bits ((sizeof(size_t)) * 8)
-#define dbh_rotate_left(val, n) (((val) << (n)) | ((val) >> (dbh_size_t_bits - (n))))
-#define dbh_rotate_right(val, n) (((val) >> (n)) | ((val) << (dbh_size_t_bits - (n))))
-
 
 void *__dbh_reserve_virtual_memory(size_t reserve_memory_size);
 dbh_return_code __dbh_commit_virtual_memory(void *memory, s32 page_offset, s32 num_pages);
@@ -456,7 +439,7 @@ void __dbh_array_free(void **array);
 u64 dbh_murmur64_seed(void const *data_, size_t len, u64 seed);
 
 // private implementation
-#ifdef dbh_implementation
+#ifdef DBH_IMPLEMENTATION
 
 /*
 ▗▖  ▗▖▗▄▄▄▖▗▖  ▗▖ ▗▄▖ ▗▄▄▖▗▖  ▗▖
@@ -470,42 +453,42 @@ u64 dbh_murmur64_seed(void const *data_, size_t len, u64 seed);
 
 void *__dbh_reserve_virtual_memory(size_t reserve_memory_size)
 {
-    void *ptr = null;
-#ifdef dbh_platform_linux
+    void *ptr = NULL;
+#ifdef DBH_PLATFORM_LINUX
     // thanks @tsoding (mista zozin) for the mmap explanation https://youtu.be/sfyfubzu9ow
-    ptr = mmap(null, reserve_memory_size, prot_none, map_private | map_anonymous, 0, 0);
-    assert(ptr != map_failed);
+    ptr = mmap(NULL, reserve_memory_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    ASSERT(ptr != MAP_FAILED);
 
     return ptr;
-#elif dbh_platform_windows
+#elif DBH_PLATFORM_WINDOWS
 
 #endif
-    assert(ptr != null);
+    ASSERT(ptr != NULL);
     return (void *)ptr;
 }
 
 dbh_return_code __dbh_commit_virtual_memory(void *memory, s32 page_offset, s32 num_pages)
 {
-#ifdef dbh_platform_linux
+#ifdef DBH_PLATFORM_LINUX
     uintptr_t next_page_base_ptr = (uintptr_t)memory + (page_offset * dbh_page_size);
     s64       new_allocated_size = num_pages * dbh_page_size;
-    s32       ret_code           = mprotect((void *)next_page_base_ptr, new_allocated_size, prot_read | prot_write);
+    s32       ret_code           = mprotect((void *)next_page_base_ptr, new_allocated_size, PROT_READ | PROT_WRITE);
     if (ret_code == -1)
     {
         printf("cannot commit: %d pages, arleady commited %d pages. increase the reserved virtual alloc size.\n",
                num_pages, page_offset);
-        assert(ret_code != -1);
+        ASSERT(ret_code != -1);
     }
 
     // poison the memory
     asan_poison_memory_region((void *)next_page_base_ptr, new_allocated_size);
 
-    return dbh_success;
-#elif dbh_platform_windows
+    return DBH_SUCCESS;
+#elif DBH_PLATFORM_WINDOWS
 
 #endif
-    assert(false);
-    return dbh_error;
+    ASSERT(false);
+    return DBH_ERROR;
 }
 // i dont think i will decomit individual pages, for example for an dynamic array i am pretty sure i will not decommit
 // the last page or last 2 pages and so on. so decommit the whole allocated memory size of it.
@@ -513,24 +496,30 @@ dbh_return_code __dbh_commit_virtual_memory(void *memory, s32 page_offset, s32 n
 // idk when i will call this though, i think i will just unmap it but oh well :)
 dbh_return_code __dbh_decommit_virtual_memory(void *memory, size_t size)
 {
-#ifdef dbh_platform_linux
-    madvise(memory, size, madv_dontneed);
-    s32 ret_code = mprotect(memory, size, prot_none);
-    assert(ret_code != -1);
-    return dbh_success;
-#elif dbh_platform_windows
+#ifdef DBH_PLATFORM_LINUX
+    madvise(memory, size, MADV_DONTNEED);
+    s32 ret_code = mprotect(memory, size, PROT_NONE);
+    ASSERT(ret_code != -1);
+    return DBH_SUCCESS;
+#elif DBH_PLATFORM_WINDOWS
 #endif
 }
 // unmaping the memory
 dbh_return_code __dbh_release_virtual_memory(void *memory, size_t size)
 {
-#ifdef dbh_platform_linux
+#ifdef DBH_PLATFORM_LINUX
     s32 ret_code = munmap(memory, size);
-    assert(ret_code != -1);
-    return dbh_success;
-#elif dbh_platform_windows
+    ASSERT(ret_code != -1);
+    return DBH_SUCCESS;
+#elif DBH_PLATFORM_WINDOWS
 #endif
 }
+/*
+ ▗▄▖ ▗▄▄▖ ▗▄▄▄▖▗▖  ▗▖ ▗▄▖  ▗▄▄▖
+▐▌ ▐▌▐▌ ▐▌▐▌   ▐▛▚▖▐▌▐▌ ▐▌▐▌
+▐▛▀▜▌▐▛▀▚▖▐▛▀▀▘▐▌ ▝▜▌▐▛▀▜▌ ▝▀▚▖
+▐▌ ▐▌▐▌ ▐▌▐▙▄▄▖▐▌  ▐▌▐▌ ▐▌▗▄▄▞▘
+*/
 
 // the easy and the understandable way of doing this is to take an example:
 // m = 13 and n = 8, the problem is that we need to align 13 to an multiple of 8.
@@ -618,8 +607,6 @@ uintptr_t __dbh_align_to_multiple(uintptr_t mem, s32 align_to)
     return aligned_mem;
 }
 
-
-// ARENA implementation
 //
 // args:
 // memory_size -> in bytes
@@ -636,14 +623,14 @@ dbh_arena dbh_arena_init_with_size(size_t memory_size)
     }
     // well if you are allocating an arena which has a size greater than dbh_arena_default_reserved_memory usally 64mb.
     // then why are you allocating it? i cant think of a reason for that :).
-    assert(mem_size < dbh_arena_default_reserved_memory);
+    ASSERT(mem_size < dbh_arena_default_reserved_memory);
 
     s32   num_pages_to_commit = mem_size / dbh_page_size;
     void *memory              = __dbh_reserve_virtual_memory(dbh_arena_default_reserved_memory);
-    assert(memory != null);
+    ASSERT(memory != NULL);
 
     dbh_return_code code = __dbh_commit_virtual_memory(memory, 0, num_pages_to_commit);
-    assert(code != dbh_error);
+    ASSERT(code != DBH_ERROR);
 
     dbh_arena arena          = {};
     arena.curr_page_offset   = num_pages_to_commit;
@@ -660,8 +647,8 @@ dbh_arena dbh_arena_init_with_size(size_t memory_size)
 //  size ->  memory block size to allocate from the arena.
 void *dbh_arena_alloc(dbh_arena *arena, size_t size)
 {
-    assert(arena != null);
-    assert(size != 0);
+    ASSERT(arena != NULL);
+    ASSERT(size != 0);
     // if the size passed on is bigger than the toal size of the arena then increase the size of the arena to accodomate
     // the allocation.
     size_t aligned_size = dbh_align_to_multiple(size, dbh_default_memory_alignement);
@@ -685,7 +672,7 @@ void *dbh_arena_alloc(dbh_arena *arena, size_t size)
 
         arena->total_size       += num_pages * dbh_page_size;
         arena->curr_page_offset += num_pages;
-        assert(code != dbh_error);
+        ASSERT(code != DBH_ERROR);
     }
 
     void *ret_mem = (void *)arena->curr_mem_pos;
@@ -700,7 +687,7 @@ void *dbh_arena_alloc(dbh_arena *arena, size_t size)
 
     // sanity check
     // if this triggers then i need to fix the aligned_size logic.
-    assert((temp + aligned_size) == arena->curr_mem_pos);
+    ASSERT((temp + aligned_size) == arena->curr_mem_pos);
 
     arena->allocated_till_now += aligned_size;
 
@@ -709,45 +696,43 @@ void *dbh_arena_alloc(dbh_arena *arena, size_t size)
 
 dbh_return_code dbh_arena_clear(dbh_arena *arena)
 {
-    assert(arena != null);
+    ASSERT(arena != NULL);
 
     memset(arena->memory, 0, arena->allocated_till_now);
     arena->allocated_till_now = 0;
     arena->curr_mem_pos       = (uintptr_t)arena->memory;
-    return dbh_success;
+    return DBH_SUCCESS;
 }
 
 dbh_return_code dbh_arena_free(dbh_arena *arena)
 {
-    assert(arena != null);
+    ASSERT(arena != NULL);
 
     // there might be the case that we allocated/commited more than dbh_arena_default_reserved_memory.
     size_t total_reserved_size = max(arena->total_size, dbh_arena_default_reserved_memory);
 
     dbh_return_code res = __dbh_release_virtual_memory(arena->memory, total_reserved_size);
-    assert(res != dbh_error);
+    ASSERT(res != DBH_ERROR);
 
     arena->allocated_till_now = 0;
     arena->curr_page_offset   = 0;
     arena->total_size         = 0;
-    arena->memory             = null;
+    arena->memory             = NULL;
     arena->curr_mem_pos       = 0;
-    return dbh_success;
+    return DBH_SUCCESS;
 }
 
-
-// DYNAMIC ARRAY IMPLEMENTATION
 dbh_return_code __dbh_array_resize(void **array)
 {
-    assert(array != null);
+    ASSERT(array != NULL);
 
     dbh_array_header *header = dbh_array_get_header(*array);
-    assert(header != null);
+    ASSERT(header != NULL);
 
     size_t new_size = header->total_length * dbh_array_default_resize_factor;
     dbh_arena_alloc(&header->arena, new_size * header->type_size);
     header->total_length += new_size;
-    return dbh_success;
+    return DBH_SUCCESS;
 }
 
 dbh_return_code __dbh_array_init(void **array, size_t type_size)
@@ -765,7 +750,7 @@ dbh_return_code __dbh_array_init(void **array, size_t type_size)
     uintptr_t array_mem =
         dbh_align_to_multiple((uintptr_t)memory + sizeof(dbh_array_header), dbh_default_memory_alignement);
 
-    assert((array_mem - sizeof(dbh_array_header)) == (uintptr_t)memory);
+    ASSERT((array_mem - sizeof(dbh_array_header)) == (uintptr_t)memory);
 
     *array = (void *)array_mem;
 
@@ -777,21 +762,32 @@ dbh_return_code __dbh_array_init(void **array, size_t type_size)
     header->type_size    = type_size;
     header->arena        = arena;
 
-    return dbh_success;
+    return DBH_SUCCESS;
 }
 
 void __dbh_array_free(void **array)
 {
-    assert(*array != null);
+    ASSERT(*array != NULL);
     dbh_array_header *header = dbh_array_get_header(*array);
     header->total_length     = 0;
     header->count            = 0;
     header->type_size        = 0;
     dbh_arena_free(&header->arena);
-    *array = null;
+    *array = NULL;
 }
 
-// HASHMAP IMPLEMENTATION
+/*
+▗▖ ▗▖ ▗▄▖  ▗▄▄▖▗▖ ▗▖▗▖  ▗▖ ▗▄▖ ▗▄▄▖
+▐▌ ▐▌▐▌ ▐▌▐▌   ▐▌ ▐▌▐▛▚▞▜▌▐▌ ▐▌▐▌ ▐▌
+▐▛▀▜▌▐▛▀▜▌ ▝▀▚▖▐▛▀▜▌▐▌  ▐▌▐▛▀▜▌▐▛▀▘
+▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘▐▌ ▐▌▐▌  ▐▌▐▌ ▐▌▐▌
+*/
+
+#define dbh_size_t_bits ((sizeof(size_t)) * 8)
+
+#define dbh_rotate_left(val, n) (((val) << (n)) | ((val) >> (dbh_size_t_bits - (n))))
+#define dbh_rotate_right(val, n) (((val) >> (n)) | ((val) << (dbh_size_t_bits - (n))))
+
 u64 dbh_murmur64_seed(void const *data_, size_t len, u64 seed)
 {
     u64 const m = 0xc6a4a7935bd1e995ull;
