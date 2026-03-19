@@ -303,6 +303,8 @@ typedef struct dbh_array_header
 #define dbh_array_free(array) __dbh_array_free((void **)&array)
 #define dbh_array_get_header(array) (dbh_array_header *)((char *)array - (sizeof(dbh_array_header)))
 #define dbh_array_get_count(array) (dbh_array_get_header(array))->count
+#define dbh_array_get_capacity(array)                                                                                  \
+    (dbh_array_get_header(array))->total_length / (dbh_array_get_header(array))->type_size
 dbh_return_code __dbh_array_resize(void **array);
 dbh_return_code __dbh_array_init(void **array, size_t type_size);
 void            __dbh_array_free(void **array);
@@ -397,7 +399,23 @@ void            __dbh_array_free(void **array);
             if (func_ptr(&elem, &array[i]))                                                                            \
             {                                                                                                          \
                 _res = &array[i];                                                                                      \
+                break;                                                                                                 \
             }                                                                                                          \
+        }                                                                                                              \
+        _res;                                                                                                          \
+    })
+
+#define dbh_array_copy(array)                                                                                          \
+    ({                                                                                                                 \
+        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
+        dbh_array(__typeof__(*array)) _res = NULL;                                                                     \
+        dbh_array_init(_res);                                                                                          \
+        dbh_array_header *cpy_arr_header = dbh_array_get_header(array);                                                \
+        ASSERT_WITH_MSG(cpy_arr_header != NULL, "passed on array header is NULL. this is a serius bug :(.");           \
+        s64 count = cpy_arr_header->count;                                                                             \
+        for (s64 i = 0; i < count; i++)                                                                                \
+        {                                                                                                              \
+            dbh_array_append(_res, array[i]);                                                                          \
         }                                                                                                              \
         _res;                                                                                                          \
     })
@@ -445,18 +463,16 @@ void            __dbh_array_free(void **array);
 
 typedef dbh_array(char) dbh_string;
 
-dbh_string dbh_string_make_reserve(dbh_string str, s64 capacity);
-dbh_string dbh_string_make(dbh_string str, char const *a);
+void       dbh_string_make_reserve(dbh_string str, s64 capacity);
+dbh_string dbh_string_make(char const *a);
 dbh_string dbh_string_make_length(dbh_string str, void const *a, s64 num_bytes);
 void       dbh_string_free(dbh_string str);
-dbh_string dbh_string_duplicate(dbh_string str, dbh_string const a);
+dbh_string dbh_string_duplicate(dbh_string const str);
 s64        dbh_string_length(dbh_string const str);
 s64        dbh_string_capacity(dbh_string const str);
 s64        dbh_string_available_space(dbh_string const str);
 void       dbh_string_clear(dbh_string str);
-dbh_string dbh_string_append(dbh_string str, dbh_string const other);
-dbh_string dbh_string_append_length(dbh_string str, void const *other, s64 num_bytes);
-dbh_string dbh_string_appendc(dbh_string str, char const *other);
+void       dbh_string_append(dbh_string str, dbh_string const other);
 // well this looks like for utf8 strings. Well Let me figure that out later
 // dbh_string dbh_string_append_rune(dbh_string str, Rune r);
 dbh_string dbh_string_append_fmt(dbh_string str, char const *fmt, ...);
@@ -871,63 +887,102 @@ u64 dbh_murmur64A_seed(const void *key, u64 len, u64 seed)
     return h;
 }
 
-dbh_string dbh_string_make_reserve(dbh_string str, s64 capacity)
+dbh_string dbh_string_make(char const *a)
 {
+    dbh_string str;
+    dbh_array_init(str);
+    while (*a)
+    {
+        dbh_array_append(str, *a);
+        a++;
+    }
+    return str;
 }
-dbh_string dbh_string_make(dbh_string str, char const *a)
+void dbh_string_make_reserve(dbh_string str, s64 capacity)
 {
-}
-dbh_string dbh_string_make_length(dbh_string str, void const *a, s64 num_bytes)
-{
+    if (dbh_array_get_capacity(str) > capacity)
+    {
+        return;
+    }
+    else
+    {
+        __dbh_array_resize((void **)&str);
+    }
 }
 void dbh_string_free(dbh_string str)
 {
+    dbh_array_free(str);
 }
-dbh_string dbh_string_duplicate(dbh_string str, dbh_string const a)
+dbh_string dbh_string_duplicate(dbh_string const str)
 {
+    dbh_string new_str = dbh_array_copy(str);
+    return new_str;
 }
 s64 dbh_string_length(dbh_string const str)
 {
+    dbh_array_header *header = dbh_array_get_header(str);
+    ASSERT_WITH_MSG(header != NULL, "String header is NULL");
+    return header->count;
 }
 s64 dbh_string_capacity(dbh_string const str)
 {
+    dbh_array_header *header = dbh_array_get_header(str);
+    ASSERT_WITH_MSG(header != NULL, "String header is NULL");
+    u64 capacity = header->total_length / header->type_size;
+    return capacity;
 }
 s64 dbh_string_available_space(dbh_string const str)
 {
+    dbh_array_header *header = dbh_array_get_header(str);
+    ASSERT_WITH_MSG(header != NULL, "String header is NULL");
+    u64 capacity        = dbh_string_capacity(str);
+    u64 available_space = capacity - header->count;
+    return available_space;
 }
 void dbh_string_clear(dbh_string str)
 {
+    dbh_array_clear(str);
 }
-dbh_string dbh_string_append(dbh_string str, dbh_string const other)
+void dbh_string_append(dbh_string str, dbh_string const other)
 {
+    dbh_array_header *header = dbh_array_get_header(other);
+    ASSERT_WITH_MSG(header != NULL, "String header is NULL");
+
+    for (s32 i = 0; i < dbh_array_get_count(other); i++)
+    {
+        dbh_array_append(str, other[i])
+    }
 }
-dbh_string dbh_string_append_length(dbh_string str, void const *other, s64 num_bytes)
-{
-}
-dbh_string dbh_string_appendc(dbh_string str, char const *other)
-{
-}
+
 // well this looks like for utf8 strings. Well Let me figure that out later
 // dbh_string dbh_string_append_rune(dbh_string str, Rune r);
 dbh_string dbh_string_append_fmt(dbh_string str, char const *fmt, ...)
 {
+    // hmm this is gonna take a bit of time.  I have to make my own (va args) format parser
+    return 0;
 }
 dbh_string dbh_string_set(dbh_string str, char const *cstr)
 {
+    return 0;
 }
 dbh_string dbh_string_make_space_for(dbh_string str, s64 add_len)
 {
+    return 0;
 }
 s64 dbh_string_allocation_size(dbh_string const str)
 {
+    return 0;
 }
 b8 dbh_string_are_equal(dbh_string const lhs, dbh_string const rhs)
 {
+    return 0;
 }
 dbh_string dbh_string_trim(dbh_string str, char const *cut_set)
 {
+    return 0;
 }
 dbh_string dbh_string_trim_space(dbh_string str)
 {
+    return 0;
 } // Whitespace ` \t\r\n\v\f`
 #endif
