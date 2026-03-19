@@ -44,7 +44,7 @@ typedef s8 b8;
    ▝▚▄▞▘▗▄▄▞▘▐▙▄▄▖▐▌   ▝▚▄▞▘▐▙▄▄▖    ▐▌  ▐▌▐▌ ▐▌▝▚▄▄▖▐▌ ▐▌▝▚▄▞▘▗▄▄▞▘
 */
 
-#define debug_break asm("int $3")
+#define DEBUG_BREAK asm("int $3")
 
 #define ASSERT(expr)                                                                                                   \
     {                                                                                                                  \
@@ -53,7 +53,7 @@ typedef s8 b8;
             if (!(expr))                                                                                               \
             {                                                                                                          \
                 printf("ASSERTion failure: %s:%d on %s\n", __FILE__, __LINE__, #expr);                                 \
-                debug_break;                                                                                           \
+                DEBUG_BREAK;                                                                                           \
             }                                                                                                          \
         } while (0);                                                                                                   \
     }
@@ -66,7 +66,7 @@ typedef s8 b8;
             {                                                                                                          \
                 printf("%s\n.", msg);                                                                                  \
                 printf("ASSERTion failure: %s:%d on %s\n", __FILE__, __LINE__, #expr);                                 \
-                debug_break;                                                                                           \
+                DEBUG_BREAK;                                                                                           \
             }                                                                                                          \
         } while (0);                                                                                                   \
     }
@@ -78,9 +78,9 @@ typedef s8 b8;
 #define s32_max 2147483647
 #define max(n, m) (s64) n >= (s64)m ? (s64)n : (s64)m
 
-#define kb(n) ((s32)n * 1024)
-#define mb(n) ((s32)n * 1024 * 1024)
-#define gb(n) ((s32)n * 1024 * 1024 * 1024)
+#define KB(n) ((s32)n * 1024)
+#define MB(n) ((s32)n * 1024 * 1024)
+#define GB(n) ((s32)n * 1024 * 1024 * 1024)
 
 #define pi32 3.1415926535897f
 #define machine_epsilon64 4.94065645841247e-324
@@ -248,6 +248,13 @@ typedef enum dbh_return_code
     DBH_SUCCESS = 1,
 } dbh_return_code;
 
+/*
+ ▗▄▖ ▗▄▄▖ ▗▄▄▄▖▗▖  ▗▖ ▗▄▖  ▗▄▄▖
+▐▌ ▐▌▐▌ ▐▌▐▌   ▐▛▚▖▐▌▐▌ ▐▌▐▌
+▐▛▀▜▌▐▛▀▚▖▐▛▀▀▘▐▌ ▝▜▌▐▛▀▜▌ ▝▀▚▖
+▐▌ ▐▌▐▌ ▐▌▐▙▄▄▖▐▌  ▐▌▐▌ ▐▌▗▄▄▞▘
+*/
+
 typedef struct dbh_arena
 {
     // how many pages has the arena commited till now.
@@ -265,9 +272,12 @@ typedef struct dbh_arena
     void *memory;
 } dbh_arena;
 
-#define dbh_arena_default_reserved_memory mb(64)
-#define dbh_arena_default_commited_memory kb(64)
-#define dbh_arena_init() dbh_arena_init_with_size(dbh_arena_default_commited_memory)
+#define DBH_ARENA_DEFAULT_RESERVED_MEMORY MB(64)
+#define DBH_ARENA_DEFAULT_COMMITED_MEMORY KB(4)
+#define dbh_arena_init() dbh_arena_init_with_size(DBH_ARENA_DEFAULT_COMMITED_MEMORY)
+dbh_arena       dbh_arena_init_with_size(size_t memory_size);
+void           *dbh_arena_alloc(dbh_arena *arena, size_t size);
+dbh_return_code dbh_arena_clear(dbh_arena *arena);
 
 /*
 
@@ -286,13 +296,16 @@ typedef struct dbh_array_header
     dbh_arena arena;
 } dbh_array_header;
 
-#define dbh_array_default_resize_factor 2
+#define DBH_ARRAY_DEFAULT_RESIZE_FACTOR 2
 
 #define dbh_array(type) type *
 #define dbh_array_init(array) __dbh_array_init((void **)&array, sizeof(*array))
 #define dbh_array_free(array) __dbh_array_free((void **)&array)
 #define dbh_array_get_header(array) (dbh_array_header *)((char *)array - (sizeof(dbh_array_header)))
 #define dbh_array_get_count(array) (dbh_array_get_header(array))->count
+dbh_return_code __dbh_array_resize(void **array);
+dbh_return_code __dbh_array_init(void **array, size_t type_size);
+void            __dbh_array_free(void **array);
 
 #define dbh_array_append(array, element)                                                                               \
     do                                                                                                                 \
@@ -391,7 +404,7 @@ typedef struct dbh_array_header
 
 // i dont reset the array's length so it might be wasteful.
 // for example in the first instance we used 1gb data for the array.
-// then we cleared it.  and then we didnt exceed more than a kb of usage for the array.
+// then we cleared it.  and then we didnt exceed more than a KB of usage for the array.
 // well because we had allocated a gb beforehand the array's total length would be a gb. i dont reset that even
 // if you call dbh_array_clear() warning: if possible
 #define dbh_array_clear(array)                                                                                         \
@@ -422,24 +435,47 @@ typedef struct dbh_array_header
 #define dbh_stack_peek(stack) dbh_array_get_last(stack)
 #define dbh_stack_free(stack) dbh_array_free(stack)
 
-static size_t dbh_hash_seed = 0x31415926;
-#define dbh_hash_string(data) dbh_murmur64_seed(data, strlen(data), dbh_hash_seed)
+/*
+     ▗▄▄▖▗▄▄▄▖▗▄▄▖ ▗▄▄▄▖▗▖  ▗▖ ▗▄▄▖ ▗▄▄▖
+    ▐▌     █  ▐▌ ▐▌  █  ▐▛▚▖▐▌▐▌   ▐▌
+     ▝▀▚▖  █  ▐▛▀▚▖  █  ▐▌ ▝▜▌▐▌▝▜▌ ▝▀▚▖
+    ▗▄▄▞▘  █  ▐▌ ▐▌▗▄█▄▖▐▌  ▐▌▝▚▄▞▘▗▄▄▞▘
 
-void *__dbh_reserve_virtual_memory(size_t reserve_memory_size);
-dbh_return_code __dbh_commit_virtual_memory(void *memory, s32 page_offset, s32 num_pages);
-dbh_return_code __dbh_decommit_virtual_memory(void *memory, size_t size);
-dbh_return_code __dbh_release_virtual_memory(void *memory, size_t size);
-dbh_arena dbh_arena_init_with_size(size_t memory_size);
-void *dbh_arena_alloc(dbh_arena *arena, size_t size);
-dbh_return_code dbh_arena_clear(dbh_arena *arena);
-dbh_return_code __dbh_array_resize(void **array);
-dbh_return_code __dbh_array_init(void **array, size_t type_size);
-void __dbh_array_free(void **array);
+*/
 
-u64 dbh_murmur64_seed(void const *data_, size_t len, u64 seed);
+typedef dbh_array(char) dbh_string;
 
-// private implementation
-#ifdef DBH_IMPLEMENTATION
+dbh_string dbh_string_make_reserve(dbh_string str, s64 capacity);
+dbh_string dbh_string_make(dbh_string str, char const *a);
+dbh_string dbh_string_make_length(dbh_string str, void const *a, s64 num_bytes);
+void       dbh_string_free(dbh_string str);
+dbh_string dbh_string_duplicate(dbh_string str, dbh_string const a);
+s64        dbh_string_length(dbh_string const str);
+s64        dbh_string_capacity(dbh_string const str);
+s64        dbh_string_available_space(dbh_string const str);
+void       dbh_string_clear(dbh_string str);
+dbh_string dbh_string_append(dbh_string str, dbh_string const other);
+dbh_string dbh_string_append_length(dbh_string str, void const *other, s64 num_bytes);
+dbh_string dbh_string_appendc(dbh_string str, char const *other);
+// well this looks like for utf8 strings. Well Let me figure that out later
+// dbh_string dbh_string_append_rune(dbh_string str, Rune r);
+dbh_string dbh_string_append_fmt(dbh_string str, char const *fmt, ...);
+dbh_string dbh_string_set(dbh_string str, char const *cstr);
+dbh_string dbh_string_make_space_for(dbh_string str, s64 add_len);
+s64        dbh_string_allocation_size(dbh_string const str);
+b8         dbh_string_are_equal(dbh_string const lhs, dbh_string const rhs);
+dbh_string dbh_string_trim(dbh_string str, char const *cut_set);
+dbh_string dbh_string_trim_space(dbh_string str); // Whitespace ` \t\r\n\v\f`
+
+/*
+▗▖ ▗▖ ▗▄▖  ▗▄▄▖▗▖ ▗▖▗▖  ▗▖ ▗▄▖ ▗▄▄▖
+▐▌ ▐▌▐▌ ▐▌▐▌   ▐▌ ▐▌▐▛▚▞▜▌▐▌ ▐▌▐▌ ▐▌
+▐▛▀▜▌▐▛▀▜▌ ▝▀▚▖▐▛▀▜▌▐▌  ▐▌▐▛▀▜▌▐▛▀▘
+▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘▐▌ ▐▌▐▌  ▐▌▐▌ ▐▌▐▌
+*/
+
+#define dbh_hash_seed 0x31415926
+#define dbh_hash_string(data) dbh_murmur64A_seed(data, strlen(data), dbh_hash_seed)
 
 /*
 ▗▖  ▗▖▗▄▄▄▖▗▖  ▗▖ ▗▄▖ ▗▄▄▖▗▖  ▗▖
@@ -448,8 +484,17 @@ u64 dbh_murmur64_seed(void const *data_, size_t len, u64 seed);
 ▐▌  ▐▌▐▙▄▄▖▐▌  ▐▌▝▚▄▞▘▐▌ ▐▌ ▐▌
 */
 
+void           *__dbh_reserve_virtual_memory(size_t reserve_memory_size);
+dbh_return_code __dbh_commit_virtual_memory(void *memory, s32 page_offset, s32 num_pages);
+dbh_return_code __dbh_decommit_virtual_memory(void *memory, size_t size);
+dbh_return_code __dbh_release_virtual_memory(void *memory, size_t size);
+
+u64 dbh_murmur64_seed(void const *data_, size_t len, u64 seed);
+
+// private implementation
+#ifdef DBH_IMPLEMENTATION
 // verify later on though if i could have huge pages or not
-#define dbh_page_size kb(4)
+#define DBH_PAGE_SIZE KB(4)
 
 void *__dbh_reserve_virtual_memory(size_t reserve_memory_size)
 {
@@ -470,8 +515,8 @@ void *__dbh_reserve_virtual_memory(size_t reserve_memory_size)
 dbh_return_code __dbh_commit_virtual_memory(void *memory, s32 page_offset, s32 num_pages)
 {
 #ifdef DBH_PLATFORM_LINUX
-    uintptr_t next_page_base_ptr = (uintptr_t)memory + (page_offset * dbh_page_size);
-    s64       new_allocated_size = num_pages * dbh_page_size;
+    uintptr_t next_page_base_ptr = (uintptr_t)memory + (page_offset * DBH_PAGE_SIZE);
+    s64       new_allocated_size = num_pages * DBH_PAGE_SIZE;
     s32       ret_code           = mprotect((void *)next_page_base_ptr, new_allocated_size, PROT_READ | PROT_WRITE);
     if (ret_code == -1)
     {
@@ -514,12 +559,6 @@ dbh_return_code __dbh_release_virtual_memory(void *memory, size_t size)
 #elif DBH_PLATFORM_WINDOWS
 #endif
 }
-/*
- ▗▄▖ ▗▄▄▖ ▗▄▄▄▖▗▖  ▗▖ ▗▄▖  ▗▄▄▖
-▐▌ ▐▌▐▌ ▐▌▐▌   ▐▛▚▖▐▌▐▌ ▐▌▐▌
-▐▛▀▜▌▐▛▀▚▖▐▛▀▀▘▐▌ ▝▜▌▐▛▀▜▌ ▝▀▚▖
-▐▌ ▐▌▐▌ ▐▌▐▙▄▄▖▐▌  ▐▌▐▌ ▐▌▗▄▄▞▘
-*/
 
 // the easy and the understandable way of doing this is to take an example:
 // m = 13 and n = 8, the problem is that we need to align 13 to an multiple of 8.
@@ -591,7 +630,7 @@ dbh_return_code __dbh_release_virtual_memory(void *memory, size_t size)
 // -8                : 11111111 11111111 11111111 11111000 -> which we derived from the above example
 //(13 +(8 - 1)) & -8 : 00000000 00000000 00000000 00010000 -> which would be 16
 #define dbh_align_to_multiple(mem, align_to) (((uintptr_t)mem + (align_to - 1)) & (-align_to))
-#define dbh_default_memory_alignement 8
+#define DBH_DEFAULT_MEMORY_ALIGNEMENT 8
 
 // use the macro if its a align_to is the power of 2
 uintptr_t __dbh_align_to_multiple(uintptr_t mem, s32 align_to)
@@ -613,20 +652,20 @@ uintptr_t __dbh_align_to_multiple(uintptr_t mem, s32 align_to)
 dbh_arena dbh_arena_init_with_size(size_t memory_size)
 {
     size_t mem_size = memory_size;
-    if (mem_size < dbh_arena_default_commited_memory)
+    if (mem_size < DBH_ARENA_DEFAULT_COMMITED_MEMORY)
     {
-        mem_size = dbh_arena_default_commited_memory;
+        mem_size = DBH_ARENA_DEFAULT_COMMITED_MEMORY;
     }
-    else if (mem_size > dbh_arena_default_commited_memory)
+    else if (mem_size > DBH_ARENA_DEFAULT_COMMITED_MEMORY)
     {
-        mem_size = dbh_align_to_multiple(mem_size, dbh_arena_default_commited_memory);
+        mem_size = dbh_align_to_multiple(mem_size, DBH_ARENA_DEFAULT_COMMITED_MEMORY);
     }
-    // well if you are allocating an arena which has a size greater than dbh_arena_default_reserved_memory usally 64mb.
+    // well if you are allocating an arena which has a size greater than DBH_ARENA_DEFAULT_RESERVED_MEMORY usally 64mb.
     // then why are you allocating it? i cant think of a reason for that :).
-    ASSERT(mem_size < dbh_arena_default_reserved_memory);
+    ASSERT(mem_size < DBH_ARENA_DEFAULT_RESERVED_MEMORY);
 
-    s32   num_pages_to_commit = mem_size / dbh_page_size;
-    void *memory              = __dbh_reserve_virtual_memory(dbh_arena_default_reserved_memory);
+    s32   num_pages_to_commit = mem_size / DBH_PAGE_SIZE;
+    void *memory              = __dbh_reserve_virtual_memory(DBH_ARENA_DEFAULT_RESERVED_MEMORY);
     ASSERT(memory != NULL);
 
     dbh_return_code code = __dbh_commit_virtual_memory(memory, 0, num_pages_to_commit);
@@ -651,26 +690,26 @@ void *dbh_arena_alloc(dbh_arena *arena, size_t size)
     ASSERT(size != 0);
     // if the size passed on is bigger than the toal size of the arena then increase the size of the arena to accodomate
     // the allocation.
-    size_t aligned_size = dbh_align_to_multiple(size, dbh_default_memory_alignement);
+    size_t aligned_size = dbh_align_to_multiple(size, DBH_DEFAULT_MEMORY_ALIGNEMENT);
     if (arena->allocated_till_now + aligned_size > (size_t)arena->total_size)
     {
         size_t new_size = 0;
-        if (aligned_size < dbh_page_size)
+        if (aligned_size < DBH_PAGE_SIZE)
         {
-            new_size = dbh_page_size;
+            new_size = DBH_PAGE_SIZE;
         }
         else
         {
-            new_size = dbh_align_to_multiple(aligned_size, dbh_page_size);
+            new_size = dbh_align_to_multiple(aligned_size, DBH_PAGE_SIZE);
         }
 
-        s32 num_pages = new_size / dbh_page_size;
+        s32 num_pages = new_size / DBH_PAGE_SIZE;
 
         // lets say we have commited n - 1 pages of total reserved memory and now we want to allocate n + k number of
         // pages. i am pretty sure that the os will not let us and its going to crash the application.
         dbh_return_code code = __dbh_commit_virtual_memory(arena->memory, arena->curr_page_offset, num_pages);
 
-        arena->total_size       += num_pages * dbh_page_size;
+        arena->total_size       += num_pages * DBH_PAGE_SIZE;
         arena->curr_page_offset += num_pages;
         ASSERT(code != DBH_ERROR);
     }
@@ -683,7 +722,7 @@ void *dbh_arena_alloc(dbh_arena *arena, size_t size)
     uintptr_t temp = arena->curr_mem_pos;
 
     arena->curr_mem_pos += aligned_size;
-    arena->curr_mem_pos  = dbh_align_to_multiple(arena->curr_mem_pos, dbh_default_memory_alignement);
+    arena->curr_mem_pos  = dbh_align_to_multiple(arena->curr_mem_pos, DBH_DEFAULT_MEMORY_ALIGNEMENT);
 
     // sanity check
     // if this triggers then i need to fix the aligned_size logic.
@@ -708,8 +747,8 @@ dbh_return_code dbh_arena_free(dbh_arena *arena)
 {
     ASSERT(arena != NULL);
 
-    // there might be the case that we allocated/commited more than dbh_arena_default_reserved_memory.
-    size_t total_reserved_size = max(arena->total_size, dbh_arena_default_reserved_memory);
+    // there might be the case that we allocated/commited more than DBH_ARENA_DEFAULT_RESERVED_MEMORY.
+    size_t total_reserved_size = max(arena->total_size, DBH_ARENA_DEFAULT_RESERVED_MEMORY);
 
     dbh_return_code res = __dbh_release_virtual_memory(arena->memory, total_reserved_size);
     ASSERT(res != DBH_ERROR);
@@ -729,7 +768,7 @@ dbh_return_code __dbh_array_resize(void **array)
     dbh_array_header *header = dbh_array_get_header(*array);
     ASSERT(header != NULL);
 
-    size_t new_size = header->total_length * dbh_array_default_resize_factor;
+    size_t new_size = header->total_length * DBH_ARRAY_DEFAULT_RESIZE_FACTOR;
     dbh_arena_alloc(&header->arena, new_size * header->type_size);
     header->total_length += new_size;
     return DBH_SUCCESS;
@@ -741,21 +780,21 @@ dbh_return_code __dbh_array_init(void **array, size_t type_size)
 
     // maybe a bit wasteful but we've already commited this much isnt it?
     size_t header_plus_array_size = arena.total_size;
-    header_plus_array_size        = dbh_align_to_multiple(header_plus_array_size, dbh_default_memory_alignement);
+    header_plus_array_size        = dbh_align_to_multiple(header_plus_array_size, DBH_DEFAULT_MEMORY_ALIGNEMENT);
 
     void *memory = dbh_arena_alloc(&arena, header_plus_array_size);
 
     dbh_array_header *header = memory;
 
     uintptr_t array_mem =
-        dbh_align_to_multiple((uintptr_t)memory + sizeof(dbh_array_header), dbh_default_memory_alignement);
+        dbh_align_to_multiple((uintptr_t)memory + sizeof(dbh_array_header), DBH_DEFAULT_MEMORY_ALIGNEMENT);
 
     ASSERT((array_mem - sizeof(dbh_array_header)) == (uintptr_t)memory);
 
     *array = (void *)array_mem;
 
     size_t array_size =
-        dbh_align_to_multiple(header_plus_array_size - sizeof(dbh_array_header), dbh_default_memory_alignement);
+        dbh_align_to_multiple(header_plus_array_size - sizeof(dbh_array_header), DBH_DEFAULT_MEMORY_ALIGNEMENT);
 
     header->total_length = array_size / type_size;
     header->count        = 0;
@@ -776,33 +815,26 @@ void __dbh_array_free(void **array)
     *array = NULL;
 }
 
-/*
-▗▖ ▗▖ ▗▄▖  ▗▄▄▖▗▖ ▗▖▗▖  ▗▖ ▗▄▖ ▗▄▄▖
-▐▌ ▐▌▐▌ ▐▌▐▌   ▐▌ ▐▌▐▛▚▞▜▌▐▌ ▐▌▐▌ ▐▌
-▐▛▀▜▌▐▛▀▜▌ ▝▀▚▖▐▛▀▜▌▐▌  ▐▌▐▛▀▜▌▐▛▀▘
-▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘▐▌ ▐▌▐▌  ▐▌▐▌ ▐▌▐▌
-*/
+#define DBH_SIZE_T_BITS ((sizeof(size_t)) * 8)
 
-#define dbh_size_t_bits ((sizeof(size_t)) * 8)
+#define dbh_rotate_left(val, n) (((val) << (n)) | ((val) >> (DBH_SIZE_T_BITS - (n))))
+#define dbh_rotate_right(val, n) (((val) >> (n)) | ((val) << (DBH_SIZE_T_BITS - (n))))
 
-#define dbh_rotate_left(val, n) (((val) << (n)) | ((val) >> (dbh_size_t_bits - (n))))
-#define dbh_rotate_right(val, n) (((val) >> (n)) | ((val) << (dbh_size_t_bits - (n))))
-
-u64 dbh_murmur64_seed(void const *data_, size_t len, u64 seed)
+u64 dbh_murmur64A_seed(const void *key, u64 len, u64 seed)
 {
-    u64 const m = 0xc6a4a7935bd1e995ull;
-    s32 const r = 47;
+    const u64 m = 0xc6a4a7935bd1e995LLU;
+    const int r = 47;
 
     u64 h = seed ^ (len * m);
 
-    u64 const *data  = (u64 const *)data_;
-    u8 const  *data2 = (u8 const *)data_;
-    u64 const *end   = data + (len / 8);
+    const u64 *data = (const u64 *)key;
+    const u64 *end  = (len >> 3) + data;
 
     while (data != end)
     {
-        u64 k = *data++;
-
+        u64 k = 0;
+        memcpy(&k, data, 8);
+        data++;
         k *= m;
         k ^= k >> r;
         k *= m;
@@ -810,6 +842,8 @@ u64 dbh_murmur64_seed(void const *data_, size_t len, u64 seed)
         h ^= k;
         h *= m;
     }
+
+    const unsigned char *data2 = (const unsigned char *)data;
 
     switch (len & 7)
     {
@@ -837,4 +871,63 @@ u64 dbh_murmur64_seed(void const *data_, size_t len, u64 seed)
     return h;
 }
 
+dbh_string dbh_string_make_reserve(dbh_string str, s64 capacity)
+{
+}
+dbh_string dbh_string_make(dbh_string str, char const *a)
+{
+}
+dbh_string dbh_string_make_length(dbh_string str, void const *a, s64 num_bytes)
+{
+}
+void dbh_string_free(dbh_string str)
+{
+}
+dbh_string dbh_string_duplicate(dbh_string str, dbh_string const a)
+{
+}
+s64 dbh_string_length(dbh_string const str)
+{
+}
+s64 dbh_string_capacity(dbh_string const str)
+{
+}
+s64 dbh_string_available_space(dbh_string const str)
+{
+}
+void dbh_string_clear(dbh_string str)
+{
+}
+dbh_string dbh_string_append(dbh_string str, dbh_string const other)
+{
+}
+dbh_string dbh_string_append_length(dbh_string str, void const *other, s64 num_bytes)
+{
+}
+dbh_string dbh_string_appendc(dbh_string str, char const *other)
+{
+}
+// well this looks like for utf8 strings. Well Let me figure that out later
+// dbh_string dbh_string_append_rune(dbh_string str, Rune r);
+dbh_string dbh_string_append_fmt(dbh_string str, char const *fmt, ...)
+{
+}
+dbh_string dbh_string_set(dbh_string str, char const *cstr)
+{
+}
+dbh_string dbh_string_make_space_for(dbh_string str, s64 add_len)
+{
+}
+s64 dbh_string_allocation_size(dbh_string const str)
+{
+}
+b8 dbh_string_are_equal(dbh_string const lhs, dbh_string const rhs)
+{
+}
+dbh_string dbh_string_trim(dbh_string str, char const *cut_set)
+{
+}
+dbh_string dbh_string_trim_space(dbh_string str)
+{
+} // Whitespace ` \t\r\n\v\f`
 #endif

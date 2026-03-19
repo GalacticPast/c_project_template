@@ -11,7 +11,7 @@ ifeq ($(OS),Windows_NT)
 	INCLUDES  := 
 # if raylib uncomment LINKER_FLAGS := -L./external/raylib/lib/windows/ -lraylib -lkernel32 -lgdi32 -luser32 -ladvapi32 -ltdh -lwinmm -lm 
 	LINKER_FLAGS := 
-	COMPILER_FLAGS := -Wall -Werror -Wextra -g -O0 -Wno-system-headers -Wno-unused-but-set-variable -Wno-unused-variable -Wno-varargs -Wno-unused-private-field -Wno-unused-parameter -Wno-unused-function -fsanitize=undefined -fsanitize-trap
+	COMPILER_FLAGS := -Wall -Werror -Wextra -g -O0 -Wno-system-headers -Wno-unused-but-set-variable -Wno-unused-variable -Wno-varargs -Wno-unused-private-field -Wno-unused-parameter -Wno-unused-function -fsanitize=undefined 
 
 	rwildcard=$(wildcard $1$2) $(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2))
 	SRC_FILES := $(call rwildcard,$(SRC)/,*.c)
@@ -21,13 +21,13 @@ else
 	SRC       := src
 	BIN       := bin
 	CC        := clang
-	ASSEMBLY  := 
+	ASSEMBLY  := temp
 	EXTENSION := 
 
 	INCLUDES     := 
 # if raylib uncomment LINKER_FLAGS := -L./external/raylib/lib/windows/ -lraylib -lkernel32 -lgdi32 -luser32 -ladvapi32 -ltdh -lwinmm -lm 
 	LINKER_FLAGS := 
-	COMPILER_FLAGS := -Wall -Werror -Wextra -g -O0 -Wno-system-headers -Wno-unused-but-set-variable -Wno-unused-variable -Wno-varargs -Wno-unused-private-field -Wno-unused-parameter -Wno-unused-function -fsanitize=undefined -fsanitize-trap
+	COMPILER_FLAGS := -Wall -Werror -Wextra -g -O0 -Wno-system-headers -Wno-unused-but-set-variable -Wno-unused-variable -Wno-varargs -Wno-unused-private-field -Wno-unused-parameter -Wno-unused-function -fsanitize=undefined 
 
 	SRC_FILES := $(shell find $(SRC) -type f -name '*.c')
 endif 
