@@ -8,9 +8,9 @@
 #include <string.h>
 
 #ifdef __win32__
-#define DBH_PLATFORM_WINDOWS
+#define DB_PLATFORM_WINDOWS
 #elif __linux__
-#define DBH_PLATFORM_LINUX
+#define DB_PLATFORM_LINUX
 #include <sanitizer/asan_interface.h>
 #include <sys/mman.h>
 #endif
@@ -52,7 +52,7 @@ typedef s8 b8;
         {                                                                                                              \
             if (!(expr))                                                                                               \
             {                                                                                                          \
-                printf("ASSERTion failure: %s:%d on %s\n", __FILE__, __LINE__, #expr);                                 \
+                printf("ASSERTion failure: %str:%d on %str\n", __FILE__, __LINE__, #expr);                             \
                 DEBUG_BREAK;                                                                                           \
             }                                                                                                          \
         } while (0);                                                                                                   \
@@ -64,8 +64,8 @@ typedef s8 b8;
         {                                                                                                              \
             if (!(expr))                                                                                               \
             {                                                                                                          \
-                printf("%s\n.", msg);                                                                                  \
-                printf("ASSERTion failure: %s:%d on %s\n", __FILE__, __LINE__, #expr);                                 \
+                printf("%str\n.", msg);                                                                                \
+                printf("ASSERTion failure: %str:%d on %str\n", __FILE__, __LINE__, #expr);                             \
                 DEBUG_BREAK;                                                                                           \
             }                                                                                                          \
         } while (0);                                                                                                   \
@@ -242,11 +242,11 @@ typedef s8 b8;
 #define asan_unpoison_memory_region(addr, size) ((void)(addr), (void)(size))
 #endif
 
-typedef enum dbh_return_code
+typedef enum db_return_code
 {
-    DBH_ERROR   = 0,
-    DBH_SUCCESS = 1,
-} dbh_return_code;
+    DB_ERROR   = 0,
+    DB_SUCCESS = 1,
+} db_return_code;
 
 /*
  ▗▄▖ ▗▄▄▖ ▗▄▄▄▖▗▖  ▗▖ ▗▄▖  ▗▄▄▖
@@ -255,7 +255,7 @@ typedef enum dbh_return_code
 ▐▌ ▐▌▐▌ ▐▌▐▙▄▄▖▐▌  ▐▌▐▌ ▐▌▗▄▄▞▘
 */
 
-typedef struct dbh_arena
+typedef struct db_arena
 {
     // how many pages has the arena commited till now.
     // we need this because if we need the arena to grow it will use the page offset to find out how many pages to
@@ -267,17 +267,17 @@ typedef struct dbh_arena
     //  @@@@@@@@@@@@--------------------
     //              ^-- starting ptr for the next allocation
     uintptr_t curr_mem_pos;
-    // original or the first ptr, this is also the starting page's memory ptr. we will need to pass this ptr if we want
-    // to unmap the memory.
+    // original or the first ptr, this is also the starting page'str memory ptr. we will need to pass this ptr if we
+    // want to unmap the memory.
     void *memory;
-} dbh_arena;
+} db_arena;
 
-#define DBH_ARENA_DEFAULT_RESERVED_MEMORY MB(64)
-#define DBH_ARENA_DEFAULT_COMMITED_MEMORY KB(4)
-#define dbh_arena_init() dbh_arena_init_with_size(DBH_ARENA_DEFAULT_COMMITED_MEMORY)
-dbh_arena       dbh_arena_init_with_size(size_t memory_size);
-void           *dbh_arena_alloc(dbh_arena *arena, size_t size);
-dbh_return_code dbh_arena_clear(dbh_arena *arena);
+#define DB_ARENA_DEFAULT_RESERVED_MEMORY MB(64)
+#define DB_ARENA_DEFAULT_COMMITED_MEMORY KB(4)
+#define db_arena_init() db_arena_init_with_size(DB_ARENA_DEFAULT_COMMITED_MEMORY)
+db_arena       db_arena_init_with_size(size_t memory_size);
+void          *db_arena_alloc(db_arena *arena, size_t size);
+db_return_code db_arena_clear(db_arena *arena);
 
 /*
 
@@ -288,60 +288,60 @@ dbh_return_code dbh_arena_clear(dbh_arena *arena);
 
 */
 
-typedef struct dbh_array_header
+typedef struct db_array_header
 {
-    s64       total_length;
-    s64       count;
-    s64       type_size;
-    dbh_arena arena;
-} dbh_array_header;
+    s64      total_length;
+    s64      count;
+    s64      type_size;
+    db_arena arena;
+} db_array_header;
 
-#define DBH_ARRAY_DEFAULT_RESIZE_FACTOR 2
+#define DB_ARRAY_DEFAULT_RESIZE_FACTOR 2
 
-#define dbh_array(type) type *
-#define dbh_array_init(array) __dbh_array_init((void **)&array, sizeof(*array))
-#define dbh_array_free(array) __dbh_array_free((void **)&array)
-#define dbh_array_get_header(array) (dbh_array_header *)((char *)array - (sizeof(dbh_array_header)))
-#define dbh_array_get_count(array) (dbh_array_get_header(array))->count
-#define dbh_array_get_capacity(array)                                                                                  \
-    (dbh_array_get_header(array))->total_length / (dbh_array_get_header(array))->type_size
-dbh_return_code __dbh_array_resize(void **array);
-dbh_return_code __dbh_array_init(void **array, size_t type_size);
-void            __dbh_array_free(void **array);
+#define db_array(type) type *
+#define db_array_init(array) __db_array_init((void **)&array, sizeof(*array))
+#define db_array_free(array) __db_array_free((void **)&array)
+#define db_array_get_header(array) (db_array_header *)((char *)array - (sizeof(db_array_header)))
+#define db_array_get_count(array) (db_array_get_header(array))->count
+#define db_array_get_capacity(array)                                                                                   \
+    (db_array_get_header(array))->total_length / (db_array_get_header(array))->type_size
+db_return_code __db_array_resize(void **array);
+db_return_code __db_array_init(void **array, size_t type_size);
+void           __db_array_free(void **array);
 
-#define dbh_array_append(array, element)                                                                               \
+#define db_array_append(array, element)                                                                                \
     do                                                                                                                 \
     {                                                                                                                  \
         ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        dbh_array_header *header = dbh_array_get_header(array);                                                        \
+        db_array_header *header = db_array_get_header(array);                                                          \
         ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
         if (header->count + 1 >= header->total_length)                                                                 \
         {                                                                                                              \
-            __dbh_array_resize((void **)&array);                                                                       \
+            __db_array_resize((void **)&array);                                                                        \
         }                                                                                                              \
         array[header->count++] = element;                                                                              \
     } while (0);
 
-#define dbh_array_pop(array)                                                                                           \
+#define db_array_pop(array)                                                                                            \
     do                                                                                                                 \
     {                                                                                                                  \
         ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        dbh_array_header *header = dbh_array_get_header(array);                                                        \
+        db_array_header *header = db_array_get_header(array);                                                          \
         ASSERT_WITH_MSG(header != NULL, "array header is NULL. ");                                                     \
         ASSERT_WITH_MSG(header->count != 0, "array has no elements yet.");                                             \
         header->count--;                                                                                               \
     } while (0);
 
 // 0 1 2 3 4 5 6
-// dbh_array_splice(v, 2, 4)
+// db_array_splice(v, 2, 4)
 // removes 2 3 4 5
 
 // removes from the starting index + num_elems elements
-#define dbh_array_remove_range(array, start, num_elems)                                                                \
+#define db_array_remove_range(array, start, num_elems)                                                                 \
     do                                                                                                                 \
     {                                                                                                                  \
         ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        dbh_array_header *header = dbh_array_get_header(array);                                                        \
+        db_array_header *header = db_array_get_header(array);                                                          \
         ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
         ASSERT_WITH_MSG((start) < header->count, "starting index is greater than array length");                       \
         /*get the remaining length of the array after start + num_elems                                                \
@@ -357,16 +357,16 @@ void            __dbh_array_free(void **array);
         memset(&array[header->count], 0, num_elems * header->type_size);                                               \
     } while (0);
 
-#define dbh_array_insert(array, index, element)                                                                        \
+#define db_array_insert(array, index, element)                                                                         \
     do                                                                                                                 \
     {                                                                                                                  \
         ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        dbh_array_header *header = dbh_array_get_header(array);                                                        \
+        db_array_header *header = db_array_get_header(array);                                                          \
         ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
         ASSERT_WITH_MSG((index < header->count), "index out of bounds");                                               \
         if (header->count + 1 >= header->total_length)                                                                 \
         {                                                                                                              \
-            __dbh_array_resize((void **)&array);                                                                       \
+            __db_array_resize((void **)&array);                                                                        \
         }                                                                                                              \
         s64 move_length = header->count - index;                                                                       \
         memmove(&array[index + 1], &array[index], move_length * header->type_size);                                    \
@@ -374,11 +374,11 @@ void            __dbh_array_free(void **array);
         header->count++;                                                                                               \
     } while (0);
 
-#define dbh_array_get_last(array)                                                                                      \
+#define db_array_get_last(array)                                                                                       \
     ({                                                                                                                 \
         ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
         __typeof__(*array) _res;                                                                                       \
-        dbh_array_header  *header = dbh_array_get_header(array);                                                       \
+        db_array_header   *header = db_array_get_header(array);                                                        \
         ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
         ASSERT_WITH_MSG((header->count > 0), "array has no elements");                                                 \
         _res = array[header->count - 1];                                                                               \
@@ -387,11 +387,11 @@ void            __dbh_array_free(void **array);
 // the function should have a signatrue like this :
 //          bool func(type* elem_to_find, type *elem_that_the_array_wants_to_check_with);
 
-#define dbh_array_find(array, elem, func_ptr)                                                                          \
+#define db_array_find(array, elem, func_ptr)                                                                           \
     ({                                                                                                                 \
         ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
         __typeof__(array) _res   = NULL;                                                                               \
-        dbh_array_header *header = dbh_array_get_header(array);                                                        \
+        db_array_header  *header = db_array_get_header(array);                                                         \
         ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
         s64 count = header->count;                                                                                     \
         for (s64 i = 0; i < count; i++)                                                                                \
@@ -405,31 +405,31 @@ void            __dbh_array_free(void **array);
         _res;                                                                                                          \
     })
 
-#define dbh_array_copy(array)                                                                                          \
+#define db_array_copy(array)                                                                                           \
     ({                                                                                                                 \
         ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        dbh_array(__typeof__(*array)) _res = NULL;                                                                     \
-        dbh_array_init(_res);                                                                                          \
-        dbh_array_header *cpy_arr_header = dbh_array_get_header(array);                                                \
+        db_array(__typeof__(*array)) _res = NULL;                                                                      \
+        db_array_init(_res);                                                                                           \
+        db_array_header *cpy_arr_header = db_array_get_header(array);                                                  \
         ASSERT_WITH_MSG(cpy_arr_header != NULL, "passed on array header is NULL. this is a serius bug :(.");           \
         s64 count = cpy_arr_header->count;                                                                             \
         for (s64 i = 0; i < count; i++)                                                                                \
         {                                                                                                              \
-            dbh_array_append(_res, array[i]);                                                                          \
+            db_array_append(_res, array[i]);                                                                           \
         }                                                                                                              \
         _res;                                                                                                          \
     })
 
-// i dont reset the array's length so it might be wasteful.
+// i dont reset the array'str length so it might be wasteful.
 // for example in the first instance we used 1gb data for the array.
 // then we cleared it.  and then we didnt exceed more than a KB of usage for the array.
-// well because we had allocated a gb beforehand the array's total length would be a gb. i dont reset that even
-// if you call dbh_array_clear() warning: if possible
-#define dbh_array_clear(array)                                                                                         \
+// well because we had allocated a gb beforehand the array'str total length would be a gb. i dont reset that even
+// if you call db_array_clear() warning: if possible
+#define db_array_clear(array)                                                                                          \
     do                                                                                                                 \
     {                                                                                                                  \
         ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        dbh_array_header *header = dbh_array_get_header(array);                                                        \
+        db_array_header *header = db_array_get_header(array);                                                          \
         ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
         if (header->count > 0)                                                                                         \
         {                                                                                                              \
@@ -446,12 +446,33 @@ void            __dbh_array_free(void **array);
 
 */
 
-#define dbh_stack(type) dbh_array(type)
-#define dbh_stack_init(stack) dbh_array_init(stack)
-#define dbh_stack_push(stack, elem) dbh_array_append(stack, elem)
-#define dbh_stack_pop(stack) dbh_array_pop(stack)
-#define dbh_stack_peek(stack) dbh_array_get_last(stack)
-#define dbh_stack_free(stack) dbh_array_free(stack)
+#define db_stack(type) db_array(type)
+#define db_stack_init(stack) db_array_init(stack)
+#define db_stack_push(stack, elem) db_array_append(stack, elem)
+#define db_stack_pop(stack) db_array_pop(stack)
+#define db_stack_peek(stack) db_array_get_last(stack)
+#define db_stack_free(stack) db_array_free(stack)
+
+/*
+ ▗▄▄▖▗▖ ▗▖ ▗▄▖ ▗▄▄▖  ▗▄▄▖
+▐▌   ▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌▐▌
+▐▌   ▐▛▀▜▌▐▛▀▜▌▐▛▀▚▖ ▝▀▚▖
+▝▚▄▄▖▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘
+
+*/
+
+char db_char_to_lower(char c);
+char db_char_to_upper(char c);
+b8   db_char_is_space(char c);
+b8   db_char_is_digit(char c);
+b8   db_char_is_hex_digit(char c);
+b8   db_char_is_alpha(char c);
+b8   db_char_is_alphanumeric(char c);
+s32  db_digit_to_int(char c);
+s32  db_hex_digit_to_int(char c);
+
+void db_str_to_lower(char *str);
+void db_str_to_upper(char *str);
 
 /*
      ▗▄▄▖▗▄▄▄▖▗▄▄▖ ▗▄▄▄▖▗▖  ▗▖ ▗▄▄▖ ▗▄▄▖
@@ -460,29 +481,65 @@ void            __dbh_array_free(void **array);
     ▗▄▄▞▘  █  ▐▌ ▐▌▗▄█▄▖▐▌  ▐▌▝▚▄▞▘▗▄▄▞▘
 
 */
+// https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord
+// all the tricks that I use for the following funcs are defined in this above page
+// Still have to implement it
+// size_t db_strlen(char const *str);
+// size_t db_strnlen(char const *str, size_t max_len);
+// s32    db_strcmp(char const *s1, char const *s2);
+// s32    db_strncmp(char const *s1, char const *s2, size_t len);
+// char  *db_strcpy(char *dest, char const *source);
+// char  *db_strncpy(char *dest, char const *source, size_t len);
+// size_t db_strlcpy(char *dest, char const *source, size_t len);
+// char  *db_strrev(char *str); // NOTE(bill): ASCII only
+//
+// char const *db_strtok(char *output, char const *src, char const *delimit);
+//
+// b8 db_str_has_prefix(char const *str, char const *prefix);
+// b8 db_str_has_suffix(char const *str, char const *suffix);
+//
+//
+// void gb_str_concat(char *dest, size_t dest_len, char const *src_a, size_t src_a_len, char const *src_b,
+//                   size_t src_b_len);
+//
+// u64  db_str_to_u64(char const *str, char **end_ptr,
+//                   s32 base); // TODO(bill): Support more than just decimal and hexadecimal
+// s64  db_str_to_i64(char const *str, char **end_ptr,
+//                   s32 base); // TODO(bill): Support more than just decimal and hexadecimal
+// f32  db_str_to_f32(char const *str, char **end_ptr);
+// f64  db_str_to_f64(char const *str, char **end_ptr);
+// void db_i64_to_str(s64 value, char *string, s32 base);
+// void db_u64_to_str(u64 value, char *string, s32 base);
 
-typedef dbh_array(char) dbh_string;
+char const *db_char_first_occurence(char const *str, char c);
+char const *db_char_last_occurence(char const *str, char c);
 
-void       dbh_string_make_reserve(dbh_string str, s64 capacity);
-dbh_string dbh_string_make(char const *a);
-dbh_string dbh_string_make_length(dbh_string str, void const *a, s64 num_bytes);
-void       dbh_string_free(dbh_string str);
-dbh_string dbh_string_duplicate(dbh_string const str);
-s64        dbh_string_length(dbh_string const str);
-s64        dbh_string_capacity(dbh_string const str);
-s64        dbh_string_available_space(dbh_string const str);
-void       dbh_string_clear(dbh_string str);
-void       dbh_string_append(dbh_string str, dbh_string const other);
+// my string
+typedef db_array(char) db_string;
+char     *db_string_get_first_occurence(const char *str, const char *sub);
+void      db_string_make_reserve(db_string str, s64 capacity);
+db_string db_string_make(char const *a);
+db_string db_string_make_length(db_string str, void const *a, s64 num_bytes);
+void      db_string_free(db_string str);
+db_string db_string_duplicate(db_string const str);
+s64       db_string_length(db_string const str);
+s64       db_string_capacity(db_string const str);
+s64       db_string_available_space(db_string const str);
+void      db_string_clear(db_string str);
+void      db_string_append(db_string str, db_string const other);
+void      db_string_append_char(db_string str, const char c);
+b8        db_strings_are_equal(db_string const lhs, db_string const rhs);
+db_string db_string_trim(db_string str, char const *cut_set);
+db_string db_string_trim_space(db_string str); // Whitespace ` \t\r\n\v\f`
+
 // well this looks like for utf8 strings. Well Let me figure that out later
-// dbh_string dbh_string_append_rune(dbh_string str, Rune r);
-dbh_string dbh_string_append_fmt(dbh_string str, char const *fmt, ...);
-dbh_string dbh_string_set(dbh_string str, char const *cstr);
-dbh_string dbh_string_make_space_for(dbh_string str, s64 add_len);
-s64        dbh_string_allocation_size(dbh_string const str);
-b8         dbh_string_are_equal(dbh_string const lhs, dbh_string const rhs);
-dbh_string dbh_string_trim(dbh_string str, char const *cut_set);
-dbh_string dbh_string_trim_space(dbh_string str); // Whitespace ` \t\r\n\v\f`
-
+// db_string db_string_append_rune(db_string str, Rune r);
+// I have to have my own fmt parser so this is disabled for now
+// db_string db_string_append_fmt(db_string str, char const *fmt, ...);
+void db_string_set(db_string str, char const *cstr);
+// hmmmmm I dont think we need this because our arena will automatically scale based on appending
+// void       db_string_make_space_for(db_string str, s64 add_len);
+// s64        db_string_allocation_size(db_string const str);
 /*
 ▗▖ ▗▖ ▗▄▖  ▗▄▄▖▗▖ ▗▖▗▖  ▗▖ ▗▄▖ ▗▄▄▖
 ▐▌ ▐▌▐▌ ▐▌▐▌   ▐▌ ▐▌▐▛▚▞▜▌▐▌ ▐▌▐▌ ▐▌
@@ -490,8 +547,8 @@ dbh_string dbh_string_trim_space(dbh_string str); // Whitespace ` \t\r\n\v\f`
 ▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘▐▌ ▐▌▐▌  ▐▌▐▌ ▐▌▐▌
 */
 
-#define dbh_hash_seed 0x31415926
-#define dbh_hash_string(data) dbh_murmur64A_seed(data, strlen(data), dbh_hash_seed)
+#define DB_hash_seed 0x31415926
+#define DB_hash_string(data) db_murmur64A_seed(data, strlen(data), db_hash_seed)
 
 /*
 ▗▖  ▗▖▗▄▄▄▖▗▖  ▗▖ ▗▄▖ ▗▄▄▖▗▖  ▗▖
@@ -500,39 +557,46 @@ dbh_string dbh_string_trim_space(dbh_string str); // Whitespace ` \t\r\n\v\f`
 ▐▌  ▐▌▐▙▄▄▖▐▌  ▐▌▝▚▄▞▘▐▌ ▐▌ ▐▌
 */
 
-void           *__dbh_reserve_virtual_memory(size_t reserve_memory_size);
-dbh_return_code __dbh_commit_virtual_memory(void *memory, s32 page_offset, s32 num_pages);
-dbh_return_code __dbh_decommit_virtual_memory(void *memory, size_t size);
-dbh_return_code __dbh_release_virtual_memory(void *memory, size_t size);
+void          *__db_reserve_virtual_memory(size_t reserve_memory_size);
+db_return_code __db_commit_virtual_memory(void *memory, s32 page_offset, s32 num_pages);
+db_return_code __db_decommit_virtual_memory(void *memory, size_t size);
+db_return_code __db_release_virtual_memory(void *memory, size_t size);
 
-u64 dbh_murmur64_seed(void const *data_, size_t len, u64 seed);
+u64 db_murmur64_seed(void const *data_, size_t len, u64 seed);
 
-// private implementation
-#ifdef DBH_IMPLEMENTATION
+/*
+▗▄▄▄▖▗▖  ▗▖▗▄▄▖ ▗▖   ▗▄▄▄▖▗▖  ▗▖▗▄▄▄▖▗▖  ▗▖▗▄▄▄▖▗▄▖▗▄▄▄▖▗▄▄▄▖ ▗▄▖ ▗▖  ▗▖
+  █  ▐▛▚▞▜▌▐▌ ▐▌▐▌   ▐▌   ▐▛▚▞▜▌▐▌   ▐▛▚▖▐▌  █ ▐▌ ▐▌ █    █  ▐▌ ▐▌▐▛▚▖▐▌
+  █  ▐▌  ▐▌▐▛▀▘ ▐▌   ▐▛▀▀▘▐▌  ▐▌▐▛▀▀▘▐▌ ▝▜▌  █ ▐▛▀▜▌ █    █  ▐▌ ▐▌▐▌ ▝▜▌
+▗▄█▄▖▐▌  ▐▌▐▌   ▐▙▄▄▖▐▙▄▄▖▐▌  ▐▌▐▙▄▄▖▐▌  ▐▌  █ ▐▌ ▐▌ █  ▗▄█▄▖▝▚▄▞▘▐▌  ▐▌
+
+*/
+
+#ifdef DB_IMPLEMENTATION
 // verify later on though if i could have huge pages or not
-#define DBH_PAGE_SIZE KB(4)
+#define DB_PAGE_SIZE KB(4)
 
-void *__dbh_reserve_virtual_memory(size_t reserve_memory_size)
+void *__db_reserve_virtual_memory(size_t reserve_memory_size)
 {
     void *ptr = NULL;
-#ifdef DBH_PLATFORM_LINUX
+#ifdef DB_PLATFORM_LINUX
     // thanks @tsoding (mista zozin) for the mmap explanation https://youtu.be/sfyfubzu9ow
     ptr = mmap(NULL, reserve_memory_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     ASSERT(ptr != MAP_FAILED);
 
     return ptr;
-#elif DBH_PLATFORM_WINDOWS
+#elif DB_PLATFORM_WINDOWS
 
 #endif
     ASSERT(ptr != NULL);
     return (void *)ptr;
 }
 
-dbh_return_code __dbh_commit_virtual_memory(void *memory, s32 page_offset, s32 num_pages)
+db_return_code __db_commit_virtual_memory(void *memory, s32 page_offset, s32 num_pages)
 {
-#ifdef DBH_PLATFORM_LINUX
-    uintptr_t next_page_base_ptr = (uintptr_t)memory + (page_offset * DBH_PAGE_SIZE);
-    s64       new_allocated_size = num_pages * DBH_PAGE_SIZE;
+#ifdef DB_PLATFORM_LINUX
+    uintptr_t next_page_base_ptr = (uintptr_t)memory + (page_offset * DB_PAGE_SIZE);
+    s64       new_allocated_size = num_pages * DB_PAGE_SIZE;
     s32       ret_code           = mprotect((void *)next_page_base_ptr, new_allocated_size, PROT_READ | PROT_WRITE);
     if (ret_code == -1)
     {
@@ -544,35 +608,36 @@ dbh_return_code __dbh_commit_virtual_memory(void *memory, s32 page_offset, s32 n
     // poison the memory
     asan_poison_memory_region((void *)next_page_base_ptr, new_allocated_size);
 
-    return DBH_SUCCESS;
-#elif DBH_PLATFORM_WINDOWS
+    return DB_SUCCESS;
+#elif DB_PLATFORM_WINDOWS
 
 #endif
     ASSERT(false);
-    return DBH_ERROR;
+    return DB_ERROR;
 }
 // i dont think i will decomit individual pages, for example for an dynamic array i am pretty sure i will not decommit
 // the last page or last 2 pages and so on. so decommit the whole allocated memory size of it.
 // decommiting means letting the os reclaim the pages while retaining the virtual address space.
 // idk when i will call this though, i think i will just unmap it but oh well :)
-dbh_return_code __dbh_decommit_virtual_memory(void *memory, size_t size)
+db_return_code __db_decommit_virtual_memory(void *memory, size_t size)
 {
-#ifdef DBH_PLATFORM_LINUX
+#ifdef DB_PLATFORM_LINUX
     madvise(memory, size, MADV_DONTNEED);
     s32 ret_code = mprotect(memory, size, PROT_NONE);
     ASSERT(ret_code != -1);
-    return DBH_SUCCESS;
-#elif DBH_PLATFORM_WINDOWS
+    return DB_SUCCESS;
+#elif DB_PLATFORM_WINDOWS
 #endif
+    return DB_ERROR;
 }
 // unmaping the memory
-dbh_return_code __dbh_release_virtual_memory(void *memory, size_t size)
+db_return_code __db_release_virtual_memory(void *memory, size_t size)
 {
-#ifdef DBH_PLATFORM_LINUX
+#ifdef DB_PLATFORM_LINUX
     s32 ret_code = munmap(memory, size);
     ASSERT(ret_code != -1);
-    return DBH_SUCCESS;
-#elif DBH_PLATFORM_WINDOWS
+    return DB_SUCCESS;
+#elif DB_PLATFORM_WINDOWS
 #endif
 }
 
@@ -620,18 +685,18 @@ dbh_return_code __dbh_release_virtual_memory(void *memory, size_t size)
 //
 // another faster way is to do a bitwise operation if and only if n is a multiple of 2
 // this one is a little confusing. i sill dont understand it compeletly
-// this works because of the 2's complement so for example :
+// this works because of the 2'str complement so for example :
 //  8: 0000000 00000000 00000000 00001000
 //  to get -8 from 8 we do  the following
-//  first we have 8's binary 0000000 00000000 00000000 00001000
-//  then we inverse all the bits 0's map to 1 and 1 maps to 0
+//  first we have 8'str binary 0000000 00000000 00000000 00001000
+//  then we inverse all the bits 0'str map to 1 and 1 maps to 0
 //  1111111 11111111 11111111 11110111 then we add  1 to it.
 //
 //   1111111 11111111 11111111 11110111
 // + 0000000 00000000 00000000 00000001
 //   1111111 11111111 11111111 11111000  which is -8
 //
-// -8: 1111111 11111111 11111111 11111000 .this is the 2's complemenent representation
+// -8: 1111111 11111111 11111111 11111000 .this is the 2'str complemenent representation
 // which i didnt know even though i have been programming for about 4 years with c :(. damn wtf.....
 //
 // so how does the following work?
@@ -645,11 +710,11 @@ dbh_return_code __dbh_release_virtual_memory(void *memory, size_t size)
 // 13 + (8 - 1)      : 00000000 00000000 00000000 00010100
 // -8                : 11111111 11111111 11111111 11111000 -> which we derived from the above example
 //(13 +(8 - 1)) & -8 : 00000000 00000000 00000000 00010000 -> which would be 16
-#define dbh_align_to_multiple(mem, align_to) (((uintptr_t)mem + (align_to - 1)) & (-align_to))
-#define DBH_DEFAULT_MEMORY_ALIGNEMENT 8
+#define DB_ALIGN_TO_MULTIPLE(mem, align_to) (((uintptr_t)mem + (align_to - 1)) & (-align_to))
+#define DB_DEFAULT_MEMORY_ALIGNEMENT 8
 
 // use the macro if its a align_to is the power of 2
-uintptr_t __dbh_align_to_multiple(uintptr_t mem, s32 align_to)
+uintptr_t __db_align_to_multiple(uintptr_t mem, s32 align_to)
 {
     /*
        https://en.wikipedia.org/wiki/data_structure_alignment
@@ -665,29 +730,29 @@ uintptr_t __dbh_align_to_multiple(uintptr_t mem, s32 align_to)
 //
 // args:
 // memory_size -> in bytes
-dbh_arena dbh_arena_init_with_size(size_t memory_size)
+db_arena db_arena_init_with_size(size_t memory_size)
 {
     size_t mem_size = memory_size;
-    if (mem_size < DBH_ARENA_DEFAULT_COMMITED_MEMORY)
+    if (mem_size < DB_ARENA_DEFAULT_COMMITED_MEMORY)
     {
-        mem_size = DBH_ARENA_DEFAULT_COMMITED_MEMORY;
+        mem_size = DB_ARENA_DEFAULT_COMMITED_MEMORY;
     }
-    else if (mem_size > DBH_ARENA_DEFAULT_COMMITED_MEMORY)
+    else if (mem_size > DB_ARENA_DEFAULT_COMMITED_MEMORY)
     {
-        mem_size = dbh_align_to_multiple(mem_size, DBH_ARENA_DEFAULT_COMMITED_MEMORY);
+        mem_size = DB_ALIGN_TO_MULTIPLE(mem_size, DB_ARENA_DEFAULT_COMMITED_MEMORY);
     }
-    // well if you are allocating an arena which has a size greater than DBH_ARENA_DEFAULT_RESERVED_MEMORY usally 64mb.
+    // well if you are allocating an arena which has a size greater than db_ARENA_DEFAULT_RESERVED_MEMORY usally 64mb.
     // then why are you allocating it? i cant think of a reason for that :).
-    ASSERT(mem_size < DBH_ARENA_DEFAULT_RESERVED_MEMORY);
+    ASSERT(mem_size < DB_ARENA_DEFAULT_RESERVED_MEMORY);
 
-    s32   num_pages_to_commit = mem_size / DBH_PAGE_SIZE;
-    void *memory              = __dbh_reserve_virtual_memory(DBH_ARENA_DEFAULT_RESERVED_MEMORY);
+    s32   num_pages_to_commit = mem_size / DB_PAGE_SIZE;
+    void *memory              = __db_reserve_virtual_memory(DB_ARENA_DEFAULT_RESERVED_MEMORY);
     ASSERT(memory != NULL);
 
-    dbh_return_code code = __dbh_commit_virtual_memory(memory, 0, num_pages_to_commit);
-    ASSERT(code != DBH_ERROR);
+    db_return_code code = __db_commit_virtual_memory(memory, 0, num_pages_to_commit);
+    ASSERT(code != DB_ERROR);
 
-    dbh_arena arena          = {};
+    db_arena arena           = {};
     arena.curr_page_offset   = num_pages_to_commit;
     arena.allocated_till_now = 0;
     arena.total_size         = mem_size;
@@ -698,36 +763,36 @@ dbh_arena dbh_arena_init_with_size(size_t memory_size)
 }
 
 // args:
-//  arena -> ptr to the dbh_arena form which you would like to allocate.
+//  arena -> ptr to the db_arena form which you would like to allocate.
 //  size ->  memory block size to allocate from the arena.
-void *dbh_arena_alloc(dbh_arena *arena, size_t size)
+void *db_arena_alloc(db_arena *arena, size_t size)
 {
     ASSERT(arena != NULL);
     ASSERT(size != 0);
     // if the size passed on is bigger than the toal size of the arena then increase the size of the arena to accodomate
     // the allocation.
-    size_t aligned_size = dbh_align_to_multiple(size, DBH_DEFAULT_MEMORY_ALIGNEMENT);
+    size_t aligned_size = DB_ALIGN_TO_MULTIPLE(size, DB_DEFAULT_MEMORY_ALIGNEMENT);
     if (arena->allocated_till_now + aligned_size > (size_t)arena->total_size)
     {
         size_t new_size = 0;
-        if (aligned_size < DBH_PAGE_SIZE)
+        if (aligned_size < DB_PAGE_SIZE)
         {
-            new_size = DBH_PAGE_SIZE;
+            new_size = DB_PAGE_SIZE;
         }
         else
         {
-            new_size = dbh_align_to_multiple(aligned_size, DBH_PAGE_SIZE);
+            new_size = DB_ALIGN_TO_MULTIPLE(aligned_size, DB_PAGE_SIZE);
         }
 
-        s32 num_pages = new_size / DBH_PAGE_SIZE;
+        s32 num_pages = new_size / DB_PAGE_SIZE;
 
         // lets say we have commited n - 1 pages of total reserved memory and now we want to allocate n + k number of
         // pages. i am pretty sure that the os will not let us and its going to crash the application.
-        dbh_return_code code = __dbh_commit_virtual_memory(arena->memory, arena->curr_page_offset, num_pages);
+        db_return_code code = __db_commit_virtual_memory(arena->memory, arena->curr_page_offset, num_pages);
 
-        arena->total_size       += num_pages * DBH_PAGE_SIZE;
+        arena->total_size       += num_pages * DB_PAGE_SIZE;
         arena->curr_page_offset += num_pages;
-        ASSERT(code != DBH_ERROR);
+        ASSERT(code != DB_ERROR);
     }
 
     void *ret_mem = (void *)arena->curr_mem_pos;
@@ -738,7 +803,7 @@ void *dbh_arena_alloc(dbh_arena *arena, size_t size)
     uintptr_t temp = arena->curr_mem_pos;
 
     arena->curr_mem_pos += aligned_size;
-    arena->curr_mem_pos  = dbh_align_to_multiple(arena->curr_mem_pos, DBH_DEFAULT_MEMORY_ALIGNEMENT);
+    arena->curr_mem_pos  = DB_ALIGN_TO_MULTIPLE(arena->curr_mem_pos, DB_DEFAULT_MEMORY_ALIGNEMENT);
 
     // sanity check
     // if this triggers then i need to fix the aligned_size logic.
@@ -749,94 +814,94 @@ void *dbh_arena_alloc(dbh_arena *arena, size_t size)
     return ret_mem;
 }
 
-dbh_return_code dbh_arena_clear(dbh_arena *arena)
+db_return_code db_arena_clear(db_arena *arena)
 {
     ASSERT(arena != NULL);
 
     memset(arena->memory, 0, arena->allocated_till_now);
     arena->allocated_till_now = 0;
     arena->curr_mem_pos       = (uintptr_t)arena->memory;
-    return DBH_SUCCESS;
+    return DB_SUCCESS;
 }
 
-dbh_return_code dbh_arena_free(dbh_arena *arena)
+db_return_code db_arena_free(db_arena *arena)
 {
     ASSERT(arena != NULL);
 
-    // there might be the case that we allocated/commited more than DBH_ARENA_DEFAULT_RESERVED_MEMORY.
-    size_t total_reserved_size = max(arena->total_size, DBH_ARENA_DEFAULT_RESERVED_MEMORY);
+    // there might be the case that we allocated/commited more than db_ARENA_DEFAULT_RESERVED_MEMORY.
+    size_t total_reserved_size = max(arena->total_size, DB_ARENA_DEFAULT_RESERVED_MEMORY);
 
-    dbh_return_code res = __dbh_release_virtual_memory(arena->memory, total_reserved_size);
-    ASSERT(res != DBH_ERROR);
+    db_return_code res = __db_release_virtual_memory(arena->memory, total_reserved_size);
+    ASSERT(res != DB_ERROR);
 
     arena->allocated_till_now = 0;
     arena->curr_page_offset   = 0;
     arena->total_size         = 0;
     arena->memory             = NULL;
     arena->curr_mem_pos       = 0;
-    return DBH_SUCCESS;
+    return DB_SUCCESS;
 }
 
-dbh_return_code __dbh_array_resize(void **array)
+db_return_code __db_array_resize(void **array)
 {
     ASSERT(array != NULL);
 
-    dbh_array_header *header = dbh_array_get_header(*array);
+    db_array_header *header = db_array_get_header(*array);
     ASSERT(header != NULL);
 
-    size_t new_size = header->total_length * DBH_ARRAY_DEFAULT_RESIZE_FACTOR;
-    dbh_arena_alloc(&header->arena, new_size * header->type_size);
+    size_t new_size = header->total_length * DB_ARRAY_DEFAULT_RESIZE_FACTOR;
+    db_arena_alloc(&header->arena, new_size * header->type_size);
     header->total_length += new_size;
-    return DBH_SUCCESS;
+    return DB_SUCCESS;
 }
 
-dbh_return_code __dbh_array_init(void **array, size_t type_size)
+db_return_code __db_array_init(void **array, size_t type_size)
 {
-    dbh_arena arena = dbh_arena_init();
+    db_arena arena = db_arena_init();
 
     // maybe a bit wasteful but we've already commited this much isnt it?
     size_t header_plus_array_size = arena.total_size;
-    header_plus_array_size        = dbh_align_to_multiple(header_plus_array_size, DBH_DEFAULT_MEMORY_ALIGNEMENT);
+    header_plus_array_size        = DB_ALIGN_TO_MULTIPLE(header_plus_array_size, DB_DEFAULT_MEMORY_ALIGNEMENT);
 
-    void *memory = dbh_arena_alloc(&arena, header_plus_array_size);
+    void *memory = db_arena_alloc(&arena, header_plus_array_size);
 
-    dbh_array_header *header = memory;
+    db_array_header *header = memory;
 
     uintptr_t array_mem =
-        dbh_align_to_multiple((uintptr_t)memory + sizeof(dbh_array_header), DBH_DEFAULT_MEMORY_ALIGNEMENT);
+        DB_ALIGN_TO_MULTIPLE((uintptr_t)memory + sizeof(db_array_header), DB_DEFAULT_MEMORY_ALIGNEMENT);
 
-    ASSERT((array_mem - sizeof(dbh_array_header)) == (uintptr_t)memory);
+    ASSERT((array_mem - sizeof(db_array_header)) == (uintptr_t)memory);
 
     *array = (void *)array_mem;
 
     size_t array_size =
-        dbh_align_to_multiple(header_plus_array_size - sizeof(dbh_array_header), DBH_DEFAULT_MEMORY_ALIGNEMENT);
+        DB_ALIGN_TO_MULTIPLE(header_plus_array_size - sizeof(db_array_header), DB_DEFAULT_MEMORY_ALIGNEMENT);
 
     header->total_length = array_size / type_size;
     header->count        = 0;
     header->type_size    = type_size;
     header->arena        = arena;
 
-    return DBH_SUCCESS;
+    return DB_SUCCESS;
 }
 
-void __dbh_array_free(void **array)
+void __db_array_free(void **array)
 {
     ASSERT(*array != NULL);
-    dbh_array_header *header = dbh_array_get_header(*array);
-    header->total_length     = 0;
-    header->count            = 0;
-    header->type_size        = 0;
-    dbh_arena_free(&header->arena);
+    db_array_header *header = db_array_get_header(*array);
+    header->total_length    = 0;
+    header->count           = 0;
+    header->type_size       = 0;
+    db_arena_free(&header->arena);
     *array = NULL;
 }
 
-#define DBH_SIZE_T_BITS ((sizeof(size_t)) * 8)
+#define DB_SIZE_T_BITS ((sizeof(size_t)) * 8)
 
-#define dbh_rotate_left(val, n) (((val) << (n)) | ((val) >> (DBH_SIZE_T_BITS - (n))))
-#define dbh_rotate_right(val, n) (((val) >> (n)) | ((val) << (DBH_SIZE_T_BITS - (n))))
+#define DB_rotate_left(val, n) (((val) << (n)) | ((val) >> (db_SIZE_T_BITS - (n))))
+#define DB_rotate_right(val, n) (((val) >> (n)) | ((val) << (db_SIZE_T_BITS - (n))))
 
-u64 dbh_murmur64A_seed(const void *key, u64 len, u64 seed)
+u64 db_murmur64A_seed(const void *key, u64 len, u64 seed)
 {
     const u64 m = 0xc6a4a7935bd1e995LLU;
     const int r = 47;
@@ -887,102 +952,201 @@ u64 dbh_murmur64A_seed(const void *key, u64 len, u64 seed)
     return h;
 }
 
-dbh_string dbh_string_make(char const *a)
+char const *db_char_first_occurence(char const *str, char c)
 {
-    dbh_string str;
-    dbh_array_init(str);
-    while (*a)
+    char ch = c;
+    for (; *str != ch; str++)
     {
-        dbh_array_append(str, *a);
-        a++;
+        if (*str == '\0')
+        {
+            return NULL;
+        }
     }
     return str;
 }
-void dbh_string_make_reserve(dbh_string str, s64 capacity)
+char const *db_char_last_occurence(char const *str, char c)
 {
-    if (dbh_array_get_capacity(str) > capacity)
+    char const *result = NULL;
+    do
+    {
+        if (*str == c)
+        {
+            result = str;
+        }
+    } while (*str++);
+
+    return result;
+}
+
+db_string db_string_make(char const *a)
+{
+    db_string str;
+    db_array_init(str);
+    while (*a)
+    {
+        db_array_append(str, *a);
+        a++;
+    }
+    s64 count  = db_array_get_count(str);
+    // hmmm it will be zero there too but lets just me more explicit
+    str[count] = '\0';
+    return str;
+}
+void db_string_make_reserve(db_string str, s64 capacity)
+{
+    if (db_array_get_capacity(str) > capacity)
     {
         return;
     }
     else
     {
-        __dbh_array_resize((void **)&str);
+        // hmmm what if even after this the capacity is smaller?
+        // FIXME:
+        __db_array_resize((void **)&str);
     }
 }
-void dbh_string_free(dbh_string str)
+void db_string_free(db_string str)
 {
-    dbh_array_free(str);
+    db_array_free(str);
 }
-dbh_string dbh_string_duplicate(dbh_string const str)
+db_string db_string_duplicate(db_string const str)
 {
-    dbh_string new_str = dbh_array_copy(str);
+    db_string new_str = db_array_copy(str);
+    s64       count   = db_array_get_count(new_str);
+    // hmmm it will be zero there too but lets just me more explicit
+    new_str[count]    = '\0';
     return new_str;
 }
-s64 dbh_string_length(dbh_string const str)
+s64 db_string_length(db_string const str)
 {
-    dbh_array_header *header = dbh_array_get_header(str);
+    db_array_header *header = db_array_get_header(str);
     ASSERT_WITH_MSG(header != NULL, "String header is NULL");
     return header->count;
 }
-s64 dbh_string_capacity(dbh_string const str)
+s64 db_string_capacity(db_string const str)
 {
-    dbh_array_header *header = dbh_array_get_header(str);
+    db_array_header *header = db_array_get_header(str);
     ASSERT_WITH_MSG(header != NULL, "String header is NULL");
     u64 capacity = header->total_length / header->type_size;
     return capacity;
 }
-s64 dbh_string_available_space(dbh_string const str)
+s64 db_string_available_space(db_string const str)
 {
-    dbh_array_header *header = dbh_array_get_header(str);
+    db_array_header *header = db_array_get_header(str);
     ASSERT_WITH_MSG(header != NULL, "String header is NULL");
-    u64 capacity        = dbh_string_capacity(str);
+    u64 capacity        = db_string_capacity(str);
     u64 available_space = capacity - header->count;
     return available_space;
 }
-void dbh_string_clear(dbh_string str)
+void db_string_clear(db_string str)
 {
-    dbh_array_clear(str);
+    db_array_clear(str);
 }
-void dbh_string_append(dbh_string str, dbh_string const other)
-{
-    dbh_array_header *header = dbh_array_get_header(other);
-    ASSERT_WITH_MSG(header != NULL, "String header is NULL");
 
-    for (s32 i = 0; i < dbh_array_get_count(other); i++)
+void db_string_append(db_string str, db_string const other)
+{
+    for (s32 i = 0; i < db_array_get_count(other); i++)
     {
-        dbh_array_append(str, other[i])
+        db_array_append(str, other[i])
     }
+    u64 count  = db_array_get_count(str);
+    // hmmm it will be zero there too but lets just me more explicit
+    str[count] = '\0';
+}
+
+void db_string_append_char(db_string str, const char c)
+{
+    u64 count = db_array_get_count(str);
+    db_array_append(str, c);
+    // hmmm it will be zero there too but lets just me more explicit
+    str[count] = '\0';
 }
 
 // well this looks like for utf8 strings. Well Let me figure that out later
-// dbh_string dbh_string_append_rune(dbh_string str, Rune r);
-dbh_string dbh_string_append_fmt(dbh_string str, char const *fmt, ...)
+// db_string db_string_append_rune(db_string str, Rune r);
+// db_string db_string_append_fmt(db_string str, char const *fmt, ...)
+//{
+//    // hmm this is gonna take a bit of time.  I have to make my own (va args) format parser
+//    return 0;
+//}
+void db_string_set(db_string str, char const *cstr)
 {
-    // hmm this is gonna take a bit of time.  I have to make my own (va args) format parser
-    return 0;
+    db_string_clear(str);
+    // maybe this is very very bad :)
+    char *c = (char *)cstr;
+    while (*c)
+    {
+        db_array_append(str, *c);
+        c++;
+    }
+    u64 count  = db_array_get_count(str);
+    // hmmm it will be zero there too but lets just me more explicit
+    str[count] = '\0';
 }
-dbh_string dbh_string_set(dbh_string str, char const *cstr)
+// hmmmmm I dont think we need this because our arena will automatically scale based on appending
+// void db_string_make_space_for(db_string str, s64 add_len)
+//{
+//}
+
+// s64 db_string_allocation_size(db_string const str)
+//{
+// }
+
+b8 db_strings_are_equal(db_string const lhs, db_string const rhs)
 {
-    return 0;
+    u64 lhs_count = db_array_get_count(lhs);
+    u64 rhs_count = db_array_get_count(rhs);
+
+    if (lhs_count != rhs_count)
+        return false;
+
+    for (u64 i = 0; i < lhs_count; i++)
+    {
+        if (lhs[i] != rhs[i])
+            return false;
+    }
+
+    return true;
 }
-dbh_string dbh_string_make_space_for(dbh_string str, s64 add_len)
+db_string db_string_trim(db_string str, char const *cut_set)
 {
-    return 0;
+    u64 length = db_array_get_count(str);
+
+    char *start_pos = &str[0];
+    char *end_pos   = &str[length - 1];
+
+    while (start_pos <= end_pos && db_char_first_occurence(cut_set, *start_pos))
+    {
+        start_pos++;
+    }
+
+    while (end_pos >= start_pos && db_char_first_occurence(cut_set, *end_pos))
+    {
+        end_pos--;
+    }
+
+    db_string new_str = NULL;
+    db_array_init(new_str);
+    while (start_pos <= end_pos)
+    {
+        db_array_append(new_str, *start_pos);
+        start_pos++;
+    }
+    length          = db_array_get_count(new_str);
+    new_str[length] = '\0';
+    return new_str;
 }
-s64 dbh_string_allocation_size(dbh_string const str)
+/**
+ * WHITESPACE REFERENCE:
+ * ' ' Space
+ * \t  Horizontal Tab
+ * \r  Carriage Return (Line start)
+ * \n  Line Feed (New line)
+ * \v  Vertical Tab
+ * \f  Form Feed (Page break) for printers
+ */
+db_string db_string_trim_space(db_string str)
 {
-    return 0;
-}
-b8 dbh_string_are_equal(dbh_string const lhs, dbh_string const rhs)
-{
-    return 0;
-}
-dbh_string dbh_string_trim(dbh_string str, char const *cut_set)
-{
-    return 0;
-}
-dbh_string dbh_string_trim_space(dbh_string str)
-{
-    return 0;
+    return db_string_trim(str, " \t\r\n\v\f");
 } // Whitespace ` \t\r\n\v\f`
 #endif
