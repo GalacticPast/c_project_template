@@ -466,13 +466,16 @@ char db_char_to_upper(char c);
 b8   db_char_is_space(char c);
 b8   db_char_is_digit(char c);
 b8   db_char_is_hex_digit(char c);
-b8   db_char_is_alpha(char c);
+b8   db_char_is_alphabet(char c);
 b8   db_char_is_alphanumeric(char c);
 s32  db_digit_to_int(char c);
 s32  db_hex_digit_to_int(char c);
 
 void db_str_to_lower(char *str);
 void db_str_to_upper(char *str);
+
+char const *db_char_first_occurence(char const *str, char c);
+char const *db_char_last_occurence(char const *str, char c);
 
 /*
      ▗▄▄▖▗▄▄▄▖▗▄▄▖ ▗▄▄▄▖▗▖  ▗▖ ▗▄▄▖ ▗▄▄▖
@@ -510,9 +513,6 @@ void db_str_to_upper(char *str);
 // f64  db_str_to_f64(char const *str, char **end_ptr);
 // void db_i64_to_str(s64 value, char *string, s32 base);
 // void db_u64_to_str(u64 value, char *string, s32 base);
-
-char const *db_char_first_occurence(char const *str, char c);
-char const *db_char_last_occurence(char const *str, char c);
 
 // my string
 typedef db_array(char) db_string;
@@ -950,6 +950,112 @@ u64 db_murmur64A_seed(const void *key, u64 len, u64 seed)
     h ^= h >> r;
 
     return h;
+}
+
+char db_char_to_lower(char c)
+{
+    if (c >= 'A' && c <= 'Z')
+    {
+        char ret = 'a' + (c - 'A');
+        return ret;
+    }
+    return c;
+}
+char db_char_to_upper(char c)
+{
+    if (c >= 'a' && c <= 'z')
+    {
+        char ret = 'A' + (c - 'a');
+        return ret;
+    }
+    return c;
+}
+b8 db_char_is_space(char c)
+{
+    if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v')
+    {
+        return true;
+    }
+    return false;
+}
+b8 db_char_is_digit(char c)
+{
+    if (c >= '0' && c <= '9')
+    {
+        return true;
+    }
+    return false;
+}
+b8 db_char_is_hex_digit(char c)
+{
+    if (db_char_is_digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))
+    {
+        return true;
+    }
+    return false;
+}
+b8 db_char_is_alphabet(char c)
+{
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+    {
+        return true;
+    }
+    return false;
+}
+b8 db_char_is_alphanumeric(char c)
+{
+    if (db_char_is_alphabet(c) || db_char_is_digit(c))
+    {
+        return true;
+    }
+    return false;
+}
+// hex digit
+// IF YOU ARE TURNING A HEX INTO A DIGIT THEN:
+// if its a it will return 10 and so on till f == 15 but if the value is anything plus f, so g,h... it will return an
+// incorecct value so always call is db_char_is_hex_digit() before calling this.
+s32 db_digit_to_int(char c)
+{
+    if (db_char_is_digit(c))
+    {
+        return (c - '0');
+    }
+    return (c - 'W');
+}
+s32 db_hex_digit_to_int(char c)
+{
+    if (db_char_is_digit(c))
+    {
+        return db_digit_to_int(c);
+    }
+    else if (c <= 'a' && c <= 'f')
+    {
+        return 10 + c;
+    }
+    else if (c <= 'A' && c <= 'F')
+    {
+        return 10 + c;
+    }
+    return -1;
+}
+
+void db_str_to_lower(char *str)
+{
+    // well if you forget the null terminator then we're kind of fucked
+    while (*str)
+    {
+        *str = db_char_to_lower(*str);
+        str++;
+    }
+}
+void db_str_to_upper(char *str)
+{
+    // well if you forget the null terminator then we're kind of fucked
+    while (*str)
+    {
+        *str = db_char_to_upper(*str);
+        str++;
+    }
 }
 
 char const *db_char_first_occurence(char const *str, char c)
