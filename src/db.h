@@ -298,9 +298,26 @@ db_return_code __db_release_virtual_memory(void *memory, size_t size);
 ▐▛▀▜▌▐▛▀▚▖▐▛▀▀▘▐▌ ▝▜▌▐▛▀▜▌ ▝▀▚▖
 ▐▌ ▐▌▐▌ ▐▌▐▙▄▄▖▐▌  ▐▌▐▌ ▐▌▗▄▄▞▘
 */
+typedef enum
+{
+    TYPE_ARENA_LINEAR  = 0,
+    TYPE_ARENA_CHUNKED = 1, // free list arena
+} db_arena_type;
+
+typedef struct db_arena_params
+{
+    db_arena_type type;
+    u32           chunk_size;
+} db_arena_params;
+
+typedef struct db_arena_chunk_header
+{
+    struct db_arena_chunk_header *next_chunk;
+} db_arena_chunk_header;
 
 typedef struct db_arena
 {
+    db_arena_type type;
     // how many pages has the arena commited till now.
     // we need this because if we need the arena to grow it will use the page offset to find out how many pages to
     // commit.
@@ -313,16 +330,23 @@ typedef struct db_arena
     uintptr_t curr_mem_pos;
     // original or the first ptr, this is also the starting page'str memory ptr. we will need to pass this ptr if we
     // want to unmap the memory.
-    void *memory;
+    void *memory; // this will also be the first chunk in the list
+
+    // if its type arena chunked
+    size_t                 allocated_chunk_count;
+    u32                    chunk_size;
+    db_arena_chunk_header *free_list_head;
 } db_arena;
 
 #define DB_ARENA_DEFAULT_RESERVED_MEMORY MB(64)
 #define DB_ARENA_DEFAULT_COMMITED_MEMORY DB_PAGE_SIZE
-#define db_arena_init() db_arena_init_with_size((size_t)DB_ARENA_DEFAULT_COMMITED_MEMORY)
-db_arena       db_arena_init_with_size(size_t memory_size);
+#define db_arena_init(...)                                                                                             \
+    db_arena_init_with_size(&(db_arena_params){__VA_ARGS__}, (size_t)DB_ARENA_DEFAULT_COMMITED_MEMORY)
+db_arena       db_arena_init_with_size(db_arena_params *params, size_t memory_size);
 void          *db_arena_alloc(db_arena *arena, size_t size);
 db_return_code db_arena_reset(db_arena *arena);
 db_return_code db_arena_free(db_arena *arena);
+db_return_code db_arena_free_node(db_arena *arena, void *ptr);
 /*
 
 ▗▄▄▄▗▖  ▗▖▗▖  ▗▖ ▗▄▖ ▗▖  ▗▖▗▄▄▄▖ ▗▄▄▖     ▗▄▖ ▗▄▄▖ ▗▄▄▖  ▗▄▖▗▖  ▗▖▗▄▄▖
@@ -331,352 +355,301 @@ db_return_code db_arena_free(db_arena *arena);
 ▐▙▄▄▀ ▐▌  ▐▌  ▐▌▐▌ ▐▌▐▌  ▐▌▗▄█▄▖▝▚▄▄▖    ▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌ ▐▌ ▗▄▄▞▘
 dynamic arrays
 */
+// inspo :
+// @note: thanks ginger bill :) he is the inspiration for this whole single header file
+//  https://github.com/gingerBill/gb/blob/master/gb.h
+// https://iafisher.com/blog/2020/06/type-safe-generics-in-c
 
-//@info: this will make it so each array has its own backing arena. idk if this is the way I should do it
-// @warn: each array has its own arena.  which can allocate physical mem behind your back
-// @info : only use this when you know that you need an array that is bigger than 4kb
-// @todo: maybe for big arrays dont use this, use another apporach ?
-typedef struct db_big_array_header
-{
-    s64      total_length;
-    s64      count;
-    s64      type_size;
-    db_arena arena;
-} db_big_array_header;
-
-typedef struct db_array_header
+typedef struct db_array_skeleton
 {
     s64       total_length;
-    s64       count;
+    s64       length;
     s64       type_size;
-    db_arena *shared_arena;
-} db_array_header;
+    db_arena *arena;
+    void     *data;
+} db_array_skeleton;
 
 #define DB_ARRAY_DEFAULT_RESIZE_FACTOR 2
-#define DB_ARRAY_DEFAULT_ALLOCATION_BUCKETS 1024
+#define DB_ARRAY_DEFAULT_ALLOCATION_BUCKETS 512
 
-#define db_array(type) type *
-#define db_array_init(arena, array) __db_array_init(arena, (void **)&array, sizeof(*array))
-#define db_array_get_header(array) (db_array_header *)((char *)array - (sizeof(db_array_header)))
-#define db_array_length(array) (db_array_get_header(array))->count
-#define db_array_set_length(array, n) (db_array_get_header(array))->count = n
-#define db_array_capacity(array) (db_array_get_header(array))->total_length / (db_array_get_header(array))->type_size
-#define db_array_free(array) __db_array_free((void **)&array)
-
-db_return_code __db_array_init(db_arena *arena, void **array, size_t type_size);
-void           __db_array_free(void **array);
-
-// @warn: you have to be careful of the follwing trap :
-// if the array gets resized, the follwing code will change the address to where the array is stored
-// it will also change the passed array ptr to match it.
-// so if you passed on this ptr or have it saved elsewhere. THAT PTR IS INVALID.
-db_return_code __db_array_resize(void **array);
-
-#define db_array_for_each(array, i, iter) for (i = 0, iter = array[i]; i < db_array_length(array); i++, iter = array[i])
-
-#define db_array_for_each_ptr(array, i, iter)                                                                          \
-    for (i = 0, iter = &array[i]; i < db_array_length(array); i++, iter = &array[i])
-
-#define db_array_get_index(array, index)                                                                               \
-    ({                                                                                                                 \
-        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        db_array_header *header = db_array_get_header(array);                                                          \
-        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
-        ASSERT_WITH_MSG(index < header->count, "Index out of bounds.")                                                 \
-        __typeof__(array) _res = NULL;                                                                                 \
-        if (header->count < index)                                                                                     \
+#define db_array_decl(name, Type)                                                                                      \
+    typedef struct db_array_##name                                                                                     \
+    {                                                                                                                  \
+        s64       total_length;                                                                                        \
+        s64       length;                                                                                              \
+        s64       type_size;                                                                                           \
+        db_arena *arena;                                                                                               \
+        Type     *data;                                                                                                \
+    } db_array_##name;                                                                                                 \
+    static inline db_array_##name db_array_##name##_init(db_arena *db_arena_ptr)                                       \
+    {                                                                                                                  \
+        ASSERT_WITH_MSG(db_arena_ptr, "Passed Arena is Null.");                                                        \
+        ASSERT_WITH_MSG(db_arena_ptr->type == TYPE_ARENA_LINEAR,                                                       \
+                        "Arena has to be a linear, we dont support chunked arenas yet:)");                             \
+        db_array_##name _array = {};                                                                                   \
+        __db_array_init(db_arena_ptr, (db_array_skeleton *)&_array, sizeof(Type));                                     \
+        return _array;                                                                                                 \
+    }                                                                                                                  \
+    static inline s64 db_array_##name##_length(db_array_##name *a)                                                     \
+    {                                                                                                                  \
+        ASSERT(a);                                                                                                     \
+        return a->length;                                                                                              \
+    }                                                                                                                  \
+    static inline void db_array_##name##_set_length(db_array_##name *a, s64 n)                                         \
+    {                                                                                                                  \
+        ASSERT(a);                                                                                                     \
+        a->length = n;                                                                                                 \
+    }                                                                                                                  \
+    static inline s64 db_array_##name##_capacity(db_array_##name *a)                                                   \
+    {                                                                                                                  \
+        ASSERT(a);                                                                                                     \
+        return a->total_length / a->type_size;                                                                         \
+    }                                                                                                                  \
+    static inline void db_array##name##_free(db_array_##name *a)                                                       \
+    {                                                                                                                  \
+        ASSERT(a);                                                                                                     \
+        __db_array_free((db_array_skeleton *)a);                                                                       \
+    }                                                                                                                  \
+    static inline Type db_array_##name##_get_index(db_array_##name *a, s64 index)                                      \
+    {                                                                                                                  \
+        ASSERT(a);                                                                                                     \
+        ASSERT_WITH_MSG(index < a->length, "Index out of bounds.");                                                    \
+        return a->data[index];                                                                                         \
+    }                                                                                                                  \
+    static inline Type *db_array_##name##_get_index_ptr(db_array_##name *a, s64 index)                                 \
+    {                                                                                                                  \
+        ASSERT(a);                                                                                                     \
+        ASSERT_WITH_MSG(index < a->length, "Index out of bounds.");                                                    \
+        return &a->data[index];                                                                                        \
+    }                                                                                                                  \
+    static inline void db_array_##name##_append(db_array_##name *a, Type element)                                      \
+    {                                                                                                                  \
+        ASSERT(a);                                                                                                     \
+        if (a->length + 1 >= a->total_length)                                                                          \
         {                                                                                                              \
-            _res = &array[index];                                                                                      \
+            __db_array_resize((db_array_skeleton *)a);                                                                 \
         }                                                                                                              \
-        *(_res);                                                                                                       \
-    })
-
-#define db_array_get_index_ptr(array, index)                                                                           \
-    ({                                                                                                                 \
-        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        db_array_header *header = db_array_get_header(array);                                                          \
-        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
-        ASSERT_WITH_MSG(index < header->count, "Index out of bounds.")                                                 \
-        __typeof__(array) _res = &array[index];                                                                        \
-        _res;                                                                                                          \
-    })
-
-#define db_array_append(array, element)                                                                                \
-    do                                                                                                                 \
+        a->data[a->length++] = element;                                                                                \
+    }                                                                                                                  \
+    static inline void db_array_##name##__pop(db_array_##name *a)                                                      \
     {                                                                                                                  \
-        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        db_array_header *header = db_array_get_header(array);                                                          \
-        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
-        if (header->count + 1 >= header->total_length)                                                                 \
-        {                                                                                                              \
-            __db_array_resize((void **)&array);                                                                        \
-        }                                                                                                              \
-        array[header->count++] = element;                                                                              \
-    } while (0);
-
-#define db_array_pop(array)                                                                                            \
-    do                                                                                                                 \
+        ASSERT(a);                                                                                                     \
+        ASSERT_WITH_MSG(a->length != 0, "array has no elements yet.");                                                 \
+        a->length--;                                                                                                   \
+    }                                                                                                                  \
+    static inline void db_array_##name##_remove_range(db_array_##name *a, s64 start, s64 num_elems)                    \
     {                                                                                                                  \
-        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        db_array_header *header = db_array_get_header(array);                                                          \
-        ASSERT_WITH_MSG(header != NULL, "array header is NULL. ");                                                     \
-        ASSERT_WITH_MSG(header->count != 0, "array has no elements yet.");                                             \
-        header->count--;                                                                                               \
-    } while (0);
-
-// 0 1 2 3 4 5 6
-// db_array_splice(v, 2, 4)
-// removes 2 3 4 5
-
-// removes from the starting index + num_elems elements
-#define db_array_remove_range(array, start, num_elems)                                                                 \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        db_array_header *header = db_array_get_header(array);                                                          \
-        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
-        ASSERT_WITH_MSG((start) < header->count, "starting index is greater than array length");                       \
+        ASSERT(a);                                                                                                     \
         /*get the remaining length of the array after start + num_elems                                                \
          *  for example: start = 2, num_elems = 3, v = n0 n1 n2 n3 n4 n5 n6 ... n                                      \
          *     v = n0 n1 n2 n3 n4 n5 n6 ...    we want to remove elmems n2, n3, n4                                     \
          * to get the length of the n5+ array. we have to do v.count -   len(n0,n1,...n4)                              \
          * length of the whole array - the length from the starting of array up to the last element we want to remove  \
          * */                                                                                                          \
-        s64 rem_length = header->count - ((start) + (num_elems));                                                      \
+        ASSERT(start < a->length);                                                                                     \
+        s64 rem_length = a->length - ((start) + (num_elems));                                                          \
         ASSERT(rem_length >= 0);                                                                                       \
-        memmove(&array[(start)], &array[(start) + (num_elems)], rem_length * header->type_size);                       \
-        header->count -= num_elems;                                                                                    \
-        memset(&array[header->count], 0, num_elems * header->type_size);                                               \
-    } while (0);
-
-#define db_array_insert(array, index, element)                                                                         \
-    do                                                                                                                 \
+        memmove(&a->data[(start)], &a->data[(start) + (num_elems)], rem_length * a->type_size);                        \
+        a->length -= num_elems;                                                                                        \
+        memset(&a->data[a->length], 0, num_elems * a->type_size);                                                      \
+    }                                                                                                                  \
+    static inline void db_array_##name##_insert(db_array_##name *a, s64 index, s64 element)                            \
     {                                                                                                                  \
-        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        db_array_header *header = db_array_get_header(array);                                                          \
-        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
-        ASSERT_WITH_MSG((index < header->count), "index out of bounds");                                               \
-        if (header->count + 1 >= header->total_length)                                                                 \
+        ASSERT(a);                                                                                                     \
+        if (a->length + 1 >= a->total_length)                                                                          \
         {                                                                                                              \
-            __db_array_resize((void **)&array);                                                                        \
+            __db_array_resize((db_array_skeleton *)&a);                                                                \
         }                                                                                                              \
-        s64 move_length = header->count - index;                                                                       \
-        memmove(&array[index + 1], &array[index], move_length * header->type_size);                                    \
-        array[index] = element;                                                                                        \
-        header->count++;                                                                                               \
-    } while (0);
-
-#define db_array_get_last(array)                                                                                       \
-    ({                                                                                                                 \
-        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        __typeof__(*array) _res;                                                                                       \
-        db_array_header   *header = db_array_get_header(array);                                                        \
-        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
-        ASSERT_WITH_MSG((header->count > 0), "array has no elements");                                                 \
-        _res = array[header->count - 1];                                                                               \
-    })
-
-#define db_array_get_last_ptr(array)                                                                                   \
-    ({                                                                                                                 \
-        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        db_array_header *header = db_array_get_header(array);                                                          \
-        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
-        ASSERT_WITH_MSG((header->count > 0), "array has no elements");                                                 \
-        const __typeof__(array) _res = &array[header->count - 1];                                                      \
-        _res;                                                                                                          \
-    })
-
-// the function should have a signatrue like this :
-//          b8 array_cmp(type* elem_to_find, type *elem_that_the_array_wants_to_check_with);
-
-#define db_array_find(array, elem, array_cmp)                                                                          \
-    ({                                                                                                                 \
-        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        __typeof__(array) _res   = NULL;                                                                               \
-        db_array_header  *header = db_array_get_header(array);                                                         \
-        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
-        s64 count = header->count;                                                                                     \
-        for (s64 i = 0; i < count; i++)                                                                                \
+        s64 move_length = a->length - index;                                                                           \
+        memmove(&a->data[index + 1], &a->data[index], move_length * a->type_size);                                     \
+        a->data[index] = element;                                                                                      \
+        a->length++;                                                                                                   \
+    }                                                                                                                  \
+    static inline Type db_array_##name##_get_last(db_array_##name *a)                                                  \
+    {                                                                                                                  \
+        ASSERT(a);                                                                                                     \
+        return a->data[a->length - 1];                                                                                 \
+    }                                                                                                                  \
+    static inline Type *db_array_##name##_get_last_ptr(db_array_##name *a)                                             \
+    {                                                                                                                  \
+        ASSERT(a);                                                                                                     \
+        return &a->data[a->length - 1];                                                                                \
+    }                                                                                                                  \
+    static inline Type *db_array_##name##_find(db_array_##name *a, Type *elem,                                         \
+                                               b8 (*db_array_##name##_cmp)(Type * a, Type * b))                        \
+    {                                                                                                                  \
+        ASSERT(a);                                                                                                     \
+        s64 length = a->length;                                                                                        \
+        for (s64 i = 0; i < length; i++)                                                                               \
         {                                                                                                              \
-            if (array_cmp(&elem, &array[i]))                                                                           \
+            if (db_array_##name##_cmp(elem, &a->data[i]))                                                              \
             {                                                                                                          \
-                _res = &array[i];                                                                                      \
-                break;                                                                                                 \
+                return &a->data[i];                                                                                    \
             }                                                                                                          \
         }                                                                                                              \
-        _res;                                                                                                          \
-    })
-
-#define db_array_duplicate(array)                                                                                      \
-    ({                                                                                                                 \
-        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        db_array_header *cpy_arr_header = db_array_get_header(array);                                                  \
-        ASSERT_WITH_MSG(cpy_arr_header != NULL, "passed on array header is NULL. this is a serius bug :(.");           \
-        db_array(__typeof__(*array)) _res = NULL;                                                                      \
-        db_array_init(cpy_arr_header->shared_arena, _res);                                                             \
-        s64 count = cpy_arr_header->count;                                                                             \
-        for (s64 i = 0; i < count; i++)                                                                                \
-        {                                                                                                              \
-            db_array_append(_res, array[i]);                                                                           \
-        }                                                                                                              \
-        _res;                                                                                                          \
-    })
-
-#define db_array_copy(arr_dest, arr_src)                                                                               \
-    do                                                                                                                 \
+        return NULL;                                                                                                   \
+    }                                                                                                                  \
+    static inline db_array_##name db_array_##name##_duplicate(db_array_##name *a)                                      \
     {                                                                                                                  \
-        ASSERT_WITH_MSG(arr_dest != NULL, "Destination array is NULL");                                                \
-        ASSERT_WITH_MSG(arr_src != NULL, "Source array is NULL");                                                      \
-        db_array_clear(arr_dest);                                                                                      \
-        s64 count = db_array_length(arr_src);                                                                          \
-        for (s64 i = 0; i < count; i++)                                                                                \
+        ASSERT(a);                                                                                                     \
+        db_array_##name _res   = db_array_##name##_init(a->arena);                                                     \
+        s64             length = a->length;                                                                            \
+        for (s64 i = 0; i < length; i++)                                                                               \
         {                                                                                                              \
-            db_array_append(arr_dest, arr_src[i]);                                                                     \
+            db_array_##name##_append(&_res, a->data[i]);                                                               \
         }                                                                                                              \
-    } while (0);
-
-// i dont reset the array'str length so it might be wasteful.
-// for example in the first instance we used 1gb data for the array.
-// then we cleared it.  and then we didnt exceed more than a KB of usage for the array.
-// well because we had allocated a gb beforehand the array'str total length would be a gb.
-// i dont reset that even if you call db_array_clear()
-#define db_array_clear(array)                                                                                          \
-    do                                                                                                                 \
+        return _res;                                                                                                   \
+    }                                                                                                                  \
+    static inline void db_array_##name##_clear(db_array_##name *a)                                                     \
     {                                                                                                                  \
-        ASSERT_WITH_MSG(array != NULL, "array is NULL");                                                               \
-        db_array_header *header = db_array_get_header(array);                                                          \
-        ASSERT_WITH_MSG(header != NULL, "array header is NULL. this is a serius bug :(.");                             \
-        if (header->count > 0)                                                                                         \
+        ASSERT(a);                                                                                                     \
+        memset(a->data, 0, a->length * a->type_size);                                                                  \
+        a->length = 0;                                                                                                 \
+    }                                                                                                                  \
+    static inline void db_array_copy(db_array_##name *arr_dest, db_array_##name *arr_src)                              \
+    {                                                                                                                  \
+        ASSERT(arr_dest);                                                                                              \
+        ASSERT(arr_src);                                                                                               \
+        db_array_##name##_clear(arr_dest);                                                                             \
+        s64 length = db_array_##name##_length(arr_src);                                                                \
+        for (s64 i = 0; i < length; i++)                                                                               \
         {                                                                                                              \
-            memset((void *)array, 0, header->count * header->type_size);                                               \
+            db_array_##name##_append(arr_dest, arr_src->data[i]);                                                      \
         }                                                                                                              \
-        header->count = 0;                                                                                             \
-    } while (0);
+    }
 
-/*
-  ▗▄▄▖▗▄▄▄▖▗▄▖  ▗▄▄▖▗▖ ▗▖
- ▐▌     █ ▐▌ ▐▌▐▌   ▐▌▗▞▘
-  ▝▀▚▖  █ ▐▛▀▜▌▐▌   ▐▛▚▖
- ▗▄▄▞▘  █ ▐▌ ▐▌▝▚▄▄▖▐▌ ▐▌
+// removes from the starting index + num_elems elements
+#define db_array_for_each(array, i, iter) for (i = 0, iter = array.data[i]; i < array.length; i++, iter = array.data[i])
+#define db_array_for_each_ptr(array, i, iter)                                                                          \
+    for (i = 0, iter = &array.data[i]; i < array.length; i++, iter = &array.data[i])
 
-*/
-//@info: this will make it so each stack has its own backing arena. idk if this is the way I should do it
-// @warn: each stack has its own arena.  which can allocate physical mem behind your back
-// @info : only use this when you know that you need an stack that is bigger than 4kb
-#define db_stack(type) db_array(type)
-#define db_stack_init(arena, stack) db_array_init(arena, stack)
-#define db_stack_push(stack, elem) db_array_append(stack, elem)
-#define db_stack_pop(stack) db_array_pop(stack)
-#define db_stack_peek(stack) db_array_get_last(stack)
-#define db_stack_peek_ptr(stack) db_array_get_last_ptr(stack)
-#define db_stack_free(stack) db_array_free(stack)
-#define db_stack_get_count(stack) db_array_length(stack)
-#define db_stack_clear(stack) db_array_clear(stack)
+db_return_code __db_array_init(db_arena *shared_arena, db_array_skeleton *array, size_t type_size);
+void           __db_array_free(db_array_skeleton *array);
 
-/*
- ▗▄▄▖▗▖ ▗▖ ▗▄▖ ▗▄▄▖  ▗▄▄▖
-▐▌   ▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌▐▌
-▐▌   ▐▛▀▜▌▐▛▀▜▌▐▛▀▚▖ ▝▀▚▖
-▝▚▄▄▖▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘
-
-*/
-
-char db_char_to_lower(char c);
-char db_char_to_upper(char c);
-b8   db_char_is_space(char c);
-b8   db_char_is_digit(char c);
-b8   db_char_is_hex_digit(char c);
-b8   db_char_is_alphabet(char c);
-b8   db_char_is_alphanumeric(char c);
-s32  db_digit_to_int(char c);
-s32  db_hex_digit_to_int(char c);
-
-void db_str_to_lower(char *str);
-void db_str_to_upper(char *str);
-
-char const *db_char_first_occurence(char const *str, char c);
-char const *db_char_last_occurence(char const *str, char c);
-
-/*
-     ▗▄▄▖▗▄▄▄▖▗▄▄▖ ▗▄▄▄▖▗▖  ▗▖ ▗▄▄▖ ▗▄▄▖
-    ▐▌     █  ▐▌ ▐▌  █  ▐▛▚▖▐▌▐▌   ▐▌
-     ▝▀▚▖  █  ▐▛▀▚▖  █  ▐▌ ▝▜▌▐▌▝▜▌ ▝▀▚▖
-    ▗▄▄▞▘  █  ▐▌ ▐▌▗▄█▄▖▐▌  ▐▌▝▚▄▞▘▗▄▄▞▘
-
-*/
-// https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord
-// all the tricks that I use for the following funcs are defined in this above page
-// Still have to implement it
-// size_t db_strlen(char const *str);
-// size_t db_strnlen(char const *str, size_t max_len);
-// s32    db_strcmp(char const *s1, char const *s2);
-// s32    db_strncmp(char const *s1, char const *s2, size_t len);
-// char  *db_strcpy(char *dest, char const *source);
-// char  *db_strncpy(char *dest, char const *source, size_t len);
-// size_t db_strlcpy(char *dest, char const *source, size_t len);
-// char  *db_strrev(char *str); // NOTE(bill): ASCII only
+// /*
+//   ▗▄▄▖▗▄▄▄▖▗▄▖  ▗▄▄▖▗▖ ▗▖
+//  ▐▌     █ ▐▌ ▐▌▐▌   ▐▌▗▞▘
+//   ▝▀▚▖  █ ▐▛▀▜▌▐▌   ▐▛▚▖
+//  ▗▄▄▞▘  █ ▐▌ ▐▌▝▚▄▄▖▐▌ ▐▌
 //
-// char const *db_strtok(char *output, char const *src, char const *delimit);
+// // */
+// //@info: this will make it so each stack has its own backing arena. idk if this is the way I should do it
+// // @warn: each stack has its own arena.  which can allocate physical mem behind your back
+// // @info : only use this when you know that you need an stack that is bigger than 4kb
+// #define db_stack(type) db_array(type)
+// #define db_stack_init(arena, stack) db_array_init(arena, stack)
+// #define db_stack_push(stack, elem) db_array_append(stack, elem)
+// #define db_stack_pop(stack) db_array_pop(stack)
+// #define db_stack_peek(stack) db_array_get_last(stack)
+// #define db_stack_peek_ptr(stack) db_array_get_last_ptr(stack)
+// #define db_stack_free(stack) db_array_free(stack)
+// #define db_stack_get_count(stack) db_array_length(stack)
+// #define db_stack_clear(stack) db_array_clear(stack)
 //
-// b8 db_str_has_prefix(char const *str, char const *prefix);
-// b8 db_str_has_suffix(char const *str, char const *suffix);
+// /*
+//  ▗▄▄▖▗▖ ▗▖ ▗▄▖ ▗▄▄▖  ▗▄▄▖
+// ▐▌   ▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌▐▌
+// ▐▌   ▐▛▀▜▌▐▛▀▜▌▐▛▀▚▖ ▝▀▚▖
+// ▝▚▄▄▖▐▌ ▐▌▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘
 //
+// */
 //
-// void gb_str_concat(char *dest, size_t dest_len, char const *src_a, size_t src_a_len, char const *src_b,
-//                   size_t src_b_len);
+// char db_char_to_lower(char c);
+// char db_char_to_upper(char c);
+// b8   db_char_is_space(char c);
+// b8   db_char_is_digit(char c);
+// b8   db_char_is_hex_digit(char c);
+// b8   db_char_is_alphabet(char c);
+// b8   db_char_is_alphanumeric(char c);
+// s32  db_digit_to_int(char c);
+// s32  db_hex_digit_to_int(char c);
 //
-// u64  db_str_to_u64(char const *str, char **end_ptr,
-//                   s32 base); // TODO: Support more than just decimal and hexadecimal
-// s64  db_str_to_i64(char const *str, char **end_ptr,
-//                   s32 base); // TODO: Support more than just decimal and hexadecimal
-// f32  db_str_to_f32(char const *str, char **end_ptr);
-// f64  db_str_to_f64(char const *str, char **end_ptr);
-// void db_i64_to_str(s64 value, char *string, s32 base);
-// void db_u64_to_str(u64 value, char *string, s32 base);
-
-// my string
-typedef db_array(char) db_string;
-
-char *db_string_get_first_occurence(const char *str, const char *sub);
-void  db_string_make_reserve(db_string str, s64 capacity);
-
-//@info: this will make it so each string has its own backing arena. idk if I should do it
-// @warn: each string has its own arena.  which can allocate physical mem behind your back
-// @info : only use this when you know that you need a string that is bigger than 4kb
-
-db_string db_string_make(db_arena *arena, char const *a);
-db_string db_string_duplicate(db_arena *arena, db_string const str);
-// does not do anything except if its a pool allocator
-void      db_string_free(db_string str);
-s64       db_string_length(db_string const str);
-s64       db_string_capacity(db_string const str);
-s64       db_string_available_space(db_string const str);
-void      db_string_clear(db_string str);
-void      db_string_append(db_string str, const char *other);
-void      db_string_append_char(db_string str, const char c);
-b8        db_strings_are_equal(db_string const lhs, db_string const rhs);
-db_string db_string_trim(db_string str, char const *cut_set);
-db_string db_string_trim_space(db_string str); // Whitespace ` \t\r\n\v\f`
-
-// well this looks like for utf8 strings. Well Let me figure that out later
-// db_string db_string_append_rune(db_string str, Rune r);
-// I have to have my own fmt parser so this is disabled for now
-// db_string db_string_append_fmt(db_string str, char const *fmt, ...);
-void db_string_set(db_string str, char const *cstr);
-// hmmmmm I dont think we need this because our arena will automatically scale based on appending
-// db_string db_string_make_length(db_string str, void const *a, s64 num_bytes);
-// void       db_string_make_space_for(db_string str, s64 add_len);
-// s64        db_string_allocation_size(db_string const str);
-/*
-▗▖ ▗▖ ▗▄▖  ▗▄▄▖▗▖ ▗▖▗▖  ▗▖ ▗▄▖ ▗▄▄▖
-▐▌ ▐▌▐▌ ▐▌▐▌   ▐▌ ▐▌▐▛▚▞▜▌▐▌ ▐▌▐▌ ▐▌
-▐▛▀▜▌▐▛▀▜▌ ▝▀▚▖▐▛▀▜▌▐▌  ▐▌▐▛▀▜▌▐▛▀▘
-▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘▐▌ ▐▌▐▌  ▐▌▐▌ ▐▌▐▌
-*/
-
-#define DB_HASH_SEED 0x31415926
-#define db_hash_string(data) db_murmur64A_seed(data, strlen(data), DB_HASH_SEED)
-u64 db_murmur64A_seed(void const *const key, u64 len, u64 seed);
+// void db_str_to_lower(char *str);
+// void db_str_to_upper(char *str);
+//
+// char const *db_char_first_occurence(char const *str, char c);
+// char const *db_char_last_occurence(char const *str, char c);
+//
+// /*
+//      ▗▄▄▖▗▄▄▄▖▗▄▄▖ ▗▄▄▄▖▗▖  ▗▖ ▗▄▄▖ ▗▄▄▖
+//     ▐▌     █  ▐▌ ▐▌  █  ▐▛▚▖▐▌▐▌   ▐▌
+//      ▝▀▚▖  █  ▐▛▀▚▖  █  ▐▌ ▝▜▌▐▌▝▜▌ ▝▀▚▖
+//     ▗▄▄▞▘  █  ▐▌ ▐▌▗▄█▄▖▐▌  ▐▌▝▚▄▞▘▗▄▄▞▘
+//
+// */
+// // https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord
+// // all the tricks that I use for the following funcs are defined in this above page
+// // Still have to implement it
+// // size_t db_strlen(char const *str);
+// // size_t db_strnlen(char const *str, size_t max_len);
+// // s32    db_strcmp(char const *s1, char const *s2);
+// // s32    db_strncmp(char const *s1, char const *s2, size_t len);
+// // char  *db_strcpy(char *dest, char const *source);
+// // char  *db_strncpy(char *dest, char const *source, size_t len);
+// // size_t db_strlcpy(char *dest, char const *source, size_t len);
+// // char  *db_strrev(char *str); // NOTE(bill): ASCII only
+// //
+// // char const *db_strtok(char *output, char const *src, char const *delimit);
+// //
+// // b8 db_str_has_prefix(char const *str, char const *prefix);
+// // b8 db_str_has_suffix(char const *str, char const *suffix);
+// //
+// //
+// // void gb_str_concat(char *dest, size_t dest_len, char const *src_a, size_t src_a_len, char const *src_b,
+// //                   size_t src_b_len);
+// //
+// // u64  db_str_to_u64(char const *str, char **end_ptr,
+// //                   s32 base); // TODO: Support more than just decimal and hexadecimal
+// // s64  db_str_to_i64(char const *str, char **end_ptr,
+// //                   s32 base); // TODO: Support more than just decimal and hexadecimal
+// // f32  db_str_to_f32(char const *str, char **end_ptr);
+// // f64  db_str_to_f64(char const *str, char **end_ptr);
+// // void db_i64_to_str(s64 value, char *string, s32 base);
+// // void db_u64_to_str(u64 value, char *string, s32 base);
+//
+// // my string
+// typedef db_array(char) db_string;
+//
+// char *db_string_get_first_occurence(const char *str, const char *sub);
+// void  db_string_make_reserve(db_string str, s64 capacity);
+//
+// //@info: this will make it so each string has its own backing arena. idk if I should do it
+// // @warn: each string has its own arena.  which can allocate physical mem behind your back
+// // @info : only use this when you know that you need a string that is bigger than 4kb
+//
+// db_string db_string_make(db_arena *arena, char const *a);
+// db_string db_string_duplicate(db_arena *arena, db_string const str);
+// // does not do anything except if its a pool allocator
+// void      db_string_free(db_string str);
+// s64       db_string_length(db_string const str);
+// s64       db_string_capacity(db_string const str);
+// s64       db_string_available_space(db_string const str);
+// void      db_string_clear(db_string str);
+// void      db_string_append(db_string str, const char *other);
+// void      db_string_append_char(db_string str, const char c);
+// b8        db_strings_are_equal(db_string const lhs, db_string const rhs);
+// db_string db_string_trim(db_string str, char const *cut_set);
+// db_string db_string_trim_space(db_string str); // Whitespace ` \t\r\n\v\f`
+//
+// // well this looks like for utf8 strings. Well Let me figure that out later
+// // db_string db_string_append_rune(db_string str, Rune r);
+// // I have to have my own fmt parser so this is disabled for now
+// // db_string db_string_append_fmt(db_string str, char const *fmt, ...);
+// void db_string_set(db_string str, char const *cstr);
+// // hmmmmm I dont think we need this because our arena will automatically scale based on appending
+// // db_string db_string_make_length(db_string str, void const *a, s64 num_bytes);
+// // void       db_string_make_space_for(db_string str, s64 add_len);
+// // s64        db_string_allocation_size(db_string const str);
+// /*
+// ▗▖ ▗▖ ▗▄▖  ▗▄▄▖▗▖ ▗▖▗▖  ▗▖ ▗▄▖ ▗▄▄▖
+// ▐▌ ▐▌▐▌ ▐▌▐▌   ▐▌ ▐▌▐▛▚▞▜▌▐▌ ▐▌▐▌ ▐▌
+// ▐▛▀▜▌▐▛▀▜▌ ▝▀▚▖▐▛▀▜▌▐▌  ▐▌▐▛▀▜▌▐▛▀▘
+// ▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘▐▌ ▐▌▐▌  ▐▌▐▌ ▐▌▐▌
+// */
+//
+// #define DB_HASH_SEED 0x31415926
+// #define db_hash_string(data) db_murmur64A_seed(data, strlen(data), DB_HASH_SEED)
+// u64 db_murmur64A_seed(void const *const key, u64 len, u64 seed);
 
 /*
 ▗▄▄▄▖▗▖  ▗▖▗▄▄▖ ▗▖   ▗▄▄▄▖▗▖  ▗▖▗▄▄▄▖▗▖  ▗▖▗▄▄▄▖▗▄▖▗▄▄▄▖▗▄▄▄▖ ▗▄▖ ▗▖  ▗▖
@@ -736,10 +709,12 @@ db_return_code __db_commit_virtual_memory(void *memory, s32 page_offset, s32 num
     return DB_SUCCESS;
 #endif
 }
+
 // i dont think i will decomit individual pages, for example for an dynamic array i am pretty sure i will not decommit
 // the last page or last 2 pages and so on. so decommit the whole allocated memory size of it.
 // decommiting means letting the os reclaim the pages while retaining the virtual address space.
 // idk when i will call this though, i think i will just unmap it but oh well :)
+
 db_return_code __db_decommit_virtual_memory(void *memory, size_t size)
 {
 #if defined(DB_PLATFORM_LINUX) || defined(DB_PLATFORM_MACOS)
@@ -773,7 +748,8 @@ db_return_code __db_release_virtual_memory(void *memory, size_t size)
 // 1st) find out the interval in which m exists. (k - 1)n <= m <= kn, in our case 8 < 13 < 16
 // 2nd) find out how much do we have to add. kn - m. 16 - 13 = 3
 // 3rd) add it and then you have the next multiple of n from m.
-// there is a problem with this solution. its really inefficeint because first we have to find the largest multiple of n
+// there is a problem with this solution. its really inefficeint because first we have to find the largest multiple
+// of n
 // which is bigger than m. and for large values we might have to do multiple multiplication and then check if that
 // number is greater than n. psudo code
 //             k = 1
@@ -855,8 +831,20 @@ uintptr_t __db_align_to_multiple(uintptr_t mem, s32 align_to)
 //
 // args:
 // memory_size -> in bytes
-db_arena db_arena_init_with_size(size_t memory_size)
+db_arena db_arena_init_with_size(db_arena_params *params, size_t memory_size)
 {
+    db_arena_params def_params = {.type = TYPE_ARENA_LINEAR, .chunk_size = 0};
+
+    if (params)
+    {
+        def_params.type = params->type;
+        if (def_params.type == TYPE_ARENA_CHUNKED)
+        {
+            ASSERT_WITH_MSG(params->chunk_size, "Chunked Arena specified but Chunk size is 0.");
+            def_params.chunk_size = params->chunk_size;
+        }
+    }
+
     size_t mem_size = memory_size;
     if (mem_size < DB_ARENA_DEFAULT_COMMITED_MEMORY)
     {
@@ -866,7 +854,8 @@ db_arena db_arena_init_with_size(size_t memory_size)
     {
         mem_size = DB_ALIGN_TO_MULTIPLE(mem_size, DB_ARENA_DEFAULT_COMMITED_MEMORY);
     }
-    // well if you are allocating an arena which has a size greater than db_ARENA_DEFAULT_RESERVED_MEMORY usally 64mb.
+    // well if you are allocating an arena which has a size greater than db_ARENA_DEFAULT_RESERVED_MEMORY usally
+    // 64mb.
     // then why are you allocating it? i cant think of a reason for that :).
     ASSERT(mem_size < DB_ARENA_DEFAULT_RESERVED_MEMORY);
 
@@ -877,14 +866,109 @@ db_arena db_arena_init_with_size(size_t memory_size)
     db_return_code code = __db_commit_virtual_memory(memory, 0, num_pages_to_commit);
     ASSERT(code != DB_ERROR);
 
-    db_arena arena           = {};
+    db_arena arena           = {0};
     arena.curr_page_offset   = num_pages_to_commit;
     arena.allocated_till_now = 0;
     arena.total_size         = mem_size;
     arena.memory             = memory;
+    arena.type               = def_params.type;
     arena.curr_mem_pos       = (uintptr_t)arena.memory;
 
+    if (def_params.type == TYPE_ARENA_CHUNKED)
+    {
+        ASSERT_WITH_MSG(def_params.chunk_size % 8 == 0, "Chunk size must be a multiple of 8 bytes.");
+        ASSERT_WITH_MSG(def_params.chunk_size > sizeof(db_arena_chunk_header), "Chunk Size is too small.");
+        arena.chunk_size         = def_params.chunk_size;
+        arena.allocated_till_now = mem_size; // cause we allocated all of it right
+        u64 chunk_count          = mem_size / def_params.chunk_size;
+
+        uintptr_t mem = arena.curr_mem_pos;
+        for (u64 i = 0; i < chunk_count; i++)
+        {
+
+            /*
+               ┌───┐
+               │   │ <- previous linked list head
+               └───┘
+
+               ┌───┐   ┌───┐
+               │   ├<──┤   │ <- new node which was created
+               └───┘   └───┘       which will be our new linked list head
+                ^
+                prev head will be the next node in our linked list;
+
+            */
+            db_arena_chunk_header *header = (db_arena_chunk_header *)mem;
+            header->next_chunk            = arena.free_list_head;
+            arena.free_list_head          = header;
+
+            mem += arena.chunk_size;
+            // i think this is unnecessary cause chunk size is supposed to be multiple of 8
+            DB_ALIGN_TO_MULTIPLE(mem, DB_DEFAULT_MEMORY_ALIGNEMENT);
+        }
+    }
     return arena;
+}
+
+void db_arena_chunked_init(db_arena *arena, size_t chunk_count, void *mem)
+{
+    ASSERT((uintptr_t)mem % 8 == 0);
+    for (u64 i = 0; i < chunk_count; i++)
+    {
+
+        /*
+           ┌───┐
+           │   │ <- previous linked list head
+           └───┘
+
+           ┌───┐   ┌───┐
+           │   ├<──┤   │ <- new node which was created
+           └───┘   └───┘       which will be our new linked list head
+           ^
+           prev head will be the next node in our linked list;
+
+*/
+        db_arena_chunk_header *header  = (db_arena_chunk_header *)mem;
+        header->next_chunk             = arena->free_list_head;
+        arena->free_list_head          = header;
+        mem                           += arena->chunk_size;
+        // i think this is unnecessary cause chunk size is supposed to be multiple of 8
+        DB_ALIGN_TO_MULTIPLE(mem, DB_DEFAULT_MEMORY_ALIGNEMENT);
+    }
+}
+
+void db_arena_resize(db_arena *arena, size_t size)
+{
+    size_t new_size = 0;
+    if (size < DB_PAGE_SIZE)
+    {
+        new_size = DB_PAGE_SIZE;
+    }
+    else
+    {
+        new_size = DB_ALIGN_TO_MULTIPLE(size, DB_PAGE_SIZE);
+    }
+
+    s32 num_pages = new_size / DB_PAGE_SIZE;
+
+    // lets say we have commited n - 1 pages of total reserved memory and now we want to allocate n + k number
+    // of pages. i am pretty sure that the os will not let us and its going to crash the application.
+    db_return_code code = __db_commit_virtual_memory(arena->memory, arena->curr_page_offset, num_pages);
+
+    arena->total_size       += num_pages * DB_PAGE_SIZE;
+    arena->curr_page_offset += num_pages;
+    ASSERT(code != DB_ERROR);
+
+    if (arena->type == TYPE_ARENA_CHUNKED)
+    {
+        arena->allocated_till_now = arena->total_size;
+        u64 chunk_count           = num_pages / arena->chunk_size;
+
+        //@todo: is this real chat??
+        uintptr_t new_page_start_ptr = (uintptr_t)arena->memory + (num_pages * DB_PAGE_SIZE);
+        db_arena_chunked_init(arena, chunk_count, (void *)new_page_start_ptr);
+        arena->free_list_head = (db_arena_chunk_header *)new_page_start_ptr;
+    }
 }
 
 // args:
@@ -894,49 +978,119 @@ void *db_arena_alloc(db_arena *arena, size_t size)
 {
     ASSERT(arena != NULL);
     ASSERT(size != 0);
-    // if the size passed on is bigger than the toal size of the arena then increase the size of the arena to accodomate
-    // the allocation.
+    // if the size passed on is bigger than the toal size of the arena then increase the size of the arena to
+    // accodomate the allocation.
     size_t aligned_size = DB_ALIGN_TO_MULTIPLE(size, DB_DEFAULT_MEMORY_ALIGNEMENT);
-    if (arena->allocated_till_now + aligned_size > (size_t)arena->total_size)
+    if (arena->type == TYPE_ARENA_LINEAR)
     {
-        size_t new_size = 0;
-        if (aligned_size < DB_PAGE_SIZE)
+        if (arena->allocated_till_now + aligned_size > (size_t)arena->total_size)
         {
-            new_size = DB_PAGE_SIZE;
+            db_arena_resize(arena, aligned_size);
         }
-        else
+    }
+    else if (arena->type == TYPE_ARENA_CHUNKED)
+    {
+        if (arena->free_list_head == NULL) // this means all the free list nodes are occupied
         {
-            new_size = DB_ALIGN_TO_MULTIPLE(aligned_size, DB_PAGE_SIZE);
+            db_arena_resize(arena, DB_PAGE_SIZE); // @todo: think of a better growth factor for the arena
         }
-
-        s32 num_pages = new_size / DB_PAGE_SIZE;
-
-        // lets say we have commited n - 1 pages of total reserved memory and now we want to allocate n + k number of
-        // pages. i am pretty sure that the os will not let us and its going to crash the application.
-        db_return_code code = __db_commit_virtual_memory(arena->memory, arena->curr_page_offset, num_pages);
-
-        arena->total_size       += num_pages * DB_PAGE_SIZE;
-        arena->curr_page_offset += num_pages;
-        ASSERT(code != DB_ERROR);
     }
 
-    void *ret_mem = (void *)arena->curr_mem_pos;
-    // unpoison the memory;
-    asan_unpoison_memory_region(ret_mem, aligned_size);
+    void *ret_mem = NULL;
+    if (arena->type == TYPE_ARENA_LINEAR)
+    {
+        // unpoison the memory;
+        ret_mem = (void *)arena->curr_mem_pos;
+        asan_unpoison_memory_region(ret_mem, aligned_size);
 
-    // align the mem ptr to a multiple of 8 for better cpu/read writes
-    uintptr_t temp = arena->curr_mem_pos;
+        // align the mem ptr to a multiple of 8 for better cpu/read writes
+        uintptr_t temp = arena->curr_mem_pos;
 
-    arena->curr_mem_pos += aligned_size;
-    arena->curr_mem_pos  = DB_ALIGN_TO_MULTIPLE(arena->curr_mem_pos, DB_DEFAULT_MEMORY_ALIGNEMENT);
+        arena->curr_mem_pos += aligned_size;
+        arena->curr_mem_pos  = DB_ALIGN_TO_MULTIPLE(arena->curr_mem_pos, DB_DEFAULT_MEMORY_ALIGNEMENT);
 
-    // sanity check
-    // if this triggers then i need to fix the aligned_size logic.
-    ASSERT((temp + aligned_size) == arena->curr_mem_pos);
+        // sanity check
+        // if this triggers then i need to fix the aligned_size logic.
+        ASSERT((temp + aligned_size) == arena->curr_mem_pos);
 
-    arena->allocated_till_now += aligned_size;
+        arena->allocated_till_now += aligned_size;
+    }
+    else if (arena->type == TYPE_ARENA_CHUNKED)
+    {
+        db_arena_chunk_header *header = arena->free_list_head;
+        ret_mem                       = (void *)((uintptr_t)header + sizeof(db_arena_chunk_header));
+        asan_unpoison_memory_region(ret_mem, DB_PAGE_SIZE);
+        DB_ALIGN_TO_MULTIPLE((uintptr_t)ret_mem, DB_DEFAULT_MEMORY_ALIGNEMENT);
 
+        arena->free_list_head = header->next_chunk;
+        header->next_chunk    = NULL; // invalidate the pointer
+
+        // sanity check
+        ASSERT((uintptr_t)header + sizeof(db_arena_chunk_header) == (uintptr_t)ret_mem);
+
+        arena->allocated_chunk_count++;
+    }
+    ASSERT_WITH_MSG(ret_mem, "ARENA ALLOCATION FAILEDD!!!! WHYYY");
     return ret_mem;
+}
+
+// hmmmmmmmmmmmmmmmmmmmmmm
+/*
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡠⠞⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠲⡑⢄⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡼⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⢮⣣⡀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠞⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠁⠱⡀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡞⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢣⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⡞⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⡆⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⡼⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣠⡤⠤⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣹⠀
+⠀⠀⠀⠀⢀⣀⣀⣸⢧⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⠞⣩⡤⠶⠶⠶⠦⠤⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⡇⡇
+⠀⠀⠀⣰⣫⡏⠳⣏⣿⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠚⠁⠀⠀⠀⠀⠀⠀⠙⢿⣿⣶⣄⡀⠀⠀⢀⡀⠀⠀⠀⠀⠀⡀⡅⡇
+⠀⠀⢰⡇⣾⡇⠀⠙⣟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣠⣴⣶⠿⠛⠻⢿⣶⣤⣍⡙⢿⣿⣷⣤⣾⡇⣼⣆⣴⣷⣿⣿⡇⡇
+⠀⠀⢸⡀⡿⠁⠀⡇⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣸⣿⣿⣯⠴⢲⣶⣶⣶⣾⣿⣿⣿⣷⠹⣿⣿⠟⢰⣿⣿⣿⠿⣿⣿⣿⠁
+⠀⠀⠈⡇⢷⣾⣿⡿⢱⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠉⠹⣌⠳⣼⣿⣿⣿⣻⣿⣿⣿⣿⡇⠈⠁⢰⣿⣿⣿⣿⣶⣾⣿⣿⠀
+⠀⠀⠀⣷⠘⠿⣿⡥⠏⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠃⠌⠉⣿⣿⣿⣿⣿⣿⠟⠃⠀⢀⡿⣿⣿⣿⣿⣿⣿⣿⡞⠀
+⠀⠀⠀⢸⡇⠀⠹⠗⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣸⣿⡿⠟⠉⠉⠀⠀⠀⠈⢃⣿⣿⣿⣿⣿⣿⡻⠀⠀
+⠀⠀⠀⠈⢧⠀⠀⠏⣇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⠋⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⠁⠀⠀
+⠀⠀⠀⠀⠈⢳⠶⠞⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣴⠆⠀⠀⠊⠁⠀⠀⠀⠀⠸⣿⣿⣿⣿⣿⣿⠀⠀⠀
+⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠂⠀⣼⣿⣀⡰⠀⠀⣤⣄⠀⠀⠀⠀⢹⣿⣿⣿⣿⢻⠀⠀⠀
+⠀⠀⠀⠀⠀⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠹⣿⠀⠀⠀⠀⠉⠀⠀⠀⠀⠀⠙⣿⣿⣿⡏⠀⠀⠀
+⠀⠀⠀⠀⠀⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⣄⢠⣤⣶⣤⣀⠀⢀⣶⣶⣶⣿⣿⠟⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⠖⠁⠀⠀⠀⠀⠀⠻⣿⣿⣥⣤⣯⣥⣾⣿⣿⣿⣿⠋⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⣰⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡼⠁⠀⠀⠀⠠⠀⠀⠀⠀⠈⣿⣿⣼⣿⣿⣿⣿⣿⣿⠇⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⡰⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠊⠀⠀⠀⣠⣰⣄⡀⠀⢀⣀⣀⣛⣟⣿⣿⣿⣿⣿⣿⡿⠀⠀⠀⠀⠀⠀⠀
+⠀⣠⠜⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣼⠾⠛⠛⠻⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠃⠀⠀⠀⠀⠀⠀⠀
+⠾⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⡟⠀⠀⠀⠀⠠⣄⣉⣉⣻⣿⣿⣿⣿⣿⣿⡟⠧⢄⡀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠻⠅⠀⠀⠀⠀⠘⠉⠹⣿⣿⣿⣿⣿⣿⣿⣿⣧⡀⠀⠉⠓⠢⣄⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣉⣿⣿⣿⣿⣿⣿⣿⣿⣷⣻⡄⠀⠀⢀⡑⠢⠄
+*/
+db_return_code db_arena_free_node(db_arena *arena, void *ptr)
+{
+    ASSERT(ptr);
+    ASSERT(arena);
+    ASSERT(arena->type == TYPE_ARENA_CHUNKED);
+
+    db_arena_chunk_header *header = (db_arena_chunk_header *)((uintptr_t)ptr - sizeof(db_arena_chunk_header));
+    // check for ptr validity
+    // kinda useless??
+    {
+
+        u64 chunk_count = arena->total_size / arena->chunk_size;
+
+        db_arena_chunk_header *check = arena->memory;
+        b8                     found = false;
+        for (u64 i = 0; i < chunk_count && !found; i++)
+        {
+            if (check == header)
+            {
+                found = true;
+            }
+            check = (db_arena_chunk_header *)((uintptr_t)check + arena->chunk_size);
+        }
+        ASSERT_WITH_MSG(found, "This ptr is not valid.");
+    }
+    header->next_chunk    = arena->free_list_head;
+    arena->free_list_head = header;
+
+    return DB_SUCCESS;
 }
 
 db_return_code db_arena_reset(db_arena *arena)
@@ -946,6 +1100,8 @@ db_return_code db_arena_reset(db_arena *arena)
     memset(arena->memory, 0, arena->allocated_till_now);
     arena->allocated_till_now = 0;
     arena->curr_mem_pos       = (uintptr_t)arena->memory;
+    arena->free_list_head     = NULL;
+
     return DB_SUCCESS;
 }
 
@@ -962,425 +1118,411 @@ db_return_code db_arena_free(db_arena *arena)
     return DB_SUCCESS;
 }
 
-db_return_code __db_array_resize(void **array)
+db_return_code __db_array_resize(db_array_skeleton *array)
 {
     ASSERT(array != NULL);
 
-    db_array_header *header = db_array_get_header(*array);
-    ASSERT(header != NULL);
-
-    size_t new_size = header->total_length * DB_ARRAY_DEFAULT_RESIZE_FACTOR;
-    db_arena_alloc(header->shared_arena, new_size * header->type_size);
-    header->total_length += new_size;
+    size_t new_size = array->total_length * DB_ARRAY_DEFAULT_RESIZE_FACTOR;
+    void  *new_mem  = db_arena_alloc(array->arena, new_size * array->type_size);
+    memcpy(new_mem, array->data, array->length * array->type_size);
+    array->data          = new_mem;
+    array->total_length += new_size;
     return DB_SUCCESS;
 }
 
-db_return_code __db_array_init(db_arena *shared_arena, void **array, size_t type_size)
+db_return_code __db_array_init(db_arena *shared_arena, db_array_skeleton *array, size_t type_size)
 {
 
     // maybe a bit wasteful but we've already commited this much isnt it?
-    size_t header_plus_array_size = sizeof(db_array_header) + DB_ARRAY_DEFAULT_ALLOCATION_BUCKETS * type_size;
-    if (header_plus_array_size >= DB_PAGE_SIZE)
+    size_t array_size = DB_ARRAY_DEFAULT_ALLOCATION_BUCKETS * type_size;
+    if (array_size >= DB_PAGE_SIZE)
     {
         printf("The array you are initializing is already bigger than the page size on your os. You might consider "
                "using the big array for this one cheif.\n");
     }
-    header_plus_array_size = DB_ALIGN_TO_MULTIPLE(header_plus_array_size, DB_DEFAULT_MEMORY_ALIGNEMENT);
+    array_size = DB_ALIGN_TO_MULTIPLE(array_size, DB_DEFAULT_MEMORY_ALIGNEMENT);
 
-    void *memory = db_arena_alloc(shared_arena, header_plus_array_size);
+    void *memory = db_arena_alloc(shared_arena, array_size);
 
-    db_array_header *header = memory;
-
-    uintptr_t array_mem =
-        DB_ALIGN_TO_MULTIPLE((uintptr_t)memory + sizeof(db_array_header), DB_DEFAULT_MEMORY_ALIGNEMENT);
-
-    ASSERT((array_mem - sizeof(db_array_header)) == (uintptr_t)memory);
-
-    *array = (void *)array_mem;
-
-    size_t array_size =
-        DB_ALIGN_TO_MULTIPLE(header_plus_array_size - sizeof(db_array_header), DB_DEFAULT_MEMORY_ALIGNEMENT);
-
-    header->total_length = array_size / type_size;
-    header->count        = 0;
-    header->type_size    = type_size;
-    header->shared_arena = shared_arena;
-
+    array->total_length = array_size / type_size;
+    array->length       = 0;
+    array->type_size    = type_size;
+    array->arena        = shared_arena;
+    array->data         = memory;
     return DB_SUCCESS;
 }
 
-void __db_array_free(void **array)
+void __db_array_free(db_array_skeleton *array)
 {
-    ASSERT(*array != NULL);
-    db_array_header *header = db_array_get_header(*array);
-    header->total_length    = 0;
-    header->count           = 0;
-    header->type_size       = 0;
+    ASSERT(array != NULL);
+    array->total_length = 0;
+    array->length       = 0;
+    array->type_size    = 0;
+    array->data         = NULL;
     // does absolutely nothing actually
     // print warning
     printf("WHY ARE YOU MANNUALLY FREEING UP MEMORY???????\n");
     ASSERT_WITH_MSG(false, "I DID THIS JUST TO PISS YOU OFFF");
-    *array = NULL;
 }
-
-#define DB_SIZE_T_BITS ((sizeof(size_t)) * 8)
-
-#define DB_rotate_left(val, n) (((val) << (n)) | ((val) >> (db_SIZE_T_BITS - (n))))
-#define DB_rotate_right(val, n) (((val) >> (n)) | ((val) << (db_SIZE_T_BITS - (n))))
-
-u64 db_murmur64A_seed(void const *const key, u64 len, u64 seed)
-{
-    const u64 m = 0xc6a4a7935bd1e995LLU;
-    const int r = 47;
-
-    u64 h = seed ^ (len * m);
-
-    const u64 *data = (const u64 *)key;
-    const u64 *end  = (len >> 3) + data;
-
-    while (data != end)
-    {
-        u64 k = *data++;
-
-        k *= m;
-        k ^= k >> r;
-        k *= m;
-
-        h ^= k;
-        h *= m;
-    }
-
-    const unsigned char *data2 = (const unsigned char *)data;
-
-    switch (len & 7)
-    {
-        case 7:
-            h ^= (u64)(data2[6]) << 48;
-        case 6:
-            h ^= (u64)(data2[5]) << 40;
-        case 5:
-            h ^= (u64)(data2[4]) << 32;
-        case 4:
-            h ^= (u64)(data2[3]) << 24;
-        case 3:
-            h ^= (u64)(data2[2]) << 16;
-        case 2:
-            h ^= (u64)(data2[1]) << 8;
-        case 1:
-            h ^= (u64)(data2[0]);
-            h *= m;
-    };
-
-    h ^= h >> r;
-    h *= m;
-    h ^= h >> r;
-
-    return h;
-}
-
-char db_char_to_lower(char c)
-{
-    if (c >= 'A' && c <= 'Z')
-    {
-        char ret = 'a' + (c - 'A');
-        return ret;
-    }
-    return c;
-}
-char db_char_to_upper(char c)
-{
-    if (c >= 'a' && c <= 'z')
-    {
-        char ret = 'A' + (c - 'a');
-        return ret;
-    }
-    return c;
-}
-b8 db_char_is_space(char c)
-{
-    if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v')
-    {
-        return true;
-    }
-    return false;
-}
-b8 db_char_is_digit(char c)
-{
-    if (c >= '0' && c <= '9')
-    {
-        return true;
-    }
-    return false;
-}
-b8 db_char_is_hex_digit(char c)
-{
-    if (db_char_is_digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))
-    {
-        return true;
-    }
-    return false;
-}
-b8 db_char_is_alphabet(char c)
-{
-    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
-    {
-        return true;
-    }
-    return false;
-}
-b8 db_char_is_alphanumeric(char c)
-{
-    if (db_char_is_alphabet(c) || db_char_is_digit(c))
-    {
-        return true;
-    }
-    return false;
-}
-// hex digit
-// IF YOU ARE TURNING A HEX INTO A DIGIT THEN:
-// if its a it will return 10 and so on till f == 15 but if the value is anything plus f, so g,h... it will return an
-// incorecct value so always call is db_char_is_hex_digit() before calling this.
-s32 db_digit_to_int(char c)
-{
-    if (db_char_is_digit(c))
-    {
-        return (c - '0');
-    }
-    return (c - 'W');
-}
-s32 db_hex_digit_to_int(char c)
-{
-    if (db_char_is_digit(c))
-    {
-        return db_digit_to_int(c);
-    }
-    else if (c <= 'a' && c <= 'f')
-    {
-        return 10 + c;
-    }
-    else if (c <= 'A' && c <= 'F')
-    {
-        return 10 + c;
-    }
-    return -1;
-}
-
-void db_str_to_lower(char *str)
-{
-    // well if you forget the null terminator then we're kind of fucked
-    while (*str)
-    {
-        *str = db_char_to_lower(*str);
-        str++;
-    }
-}
-void db_str_to_upper(char *str)
-{
-    // well if you forget the null terminator then we're kind of fucked
-    while (*str)
-    {
-        *str = db_char_to_upper(*str);
-        str++;
-    }
-}
-
-char const *db_char_first_occurence(char const *str, char c)
-{
-    char ch = c;
-    for (; *str != ch; str++)
-    {
-        if (*str == '\0')
-        {
-            return NULL;
-        }
-    }
-    return str;
-}
-char const *db_char_last_occurence(char const *str, char c)
-{
-    char const *result = NULL;
-    do
-    {
-        if (*str == c)
-        {
-            result = str;
-        }
-    } while (*str++);
-
-    return result;
-}
-
-db_string db_string_make(db_arena *arena, char const *a)
-{
-    db_string str;
-    db_array_init(arena, str);
-    while (*a)
-    {
-        db_array_append(str, *a);
-        a++;
-    }
-    s64 count  = db_array_length(str);
-    // hmmm it will be zero there too but lets just me more explicit
-    str[count] = '\0';
-    return str;
-}
-void db_string_make_reserve(db_string str, s64 capacity)
-{
-    if (db_array_capacity(str) > capacity)
-    {
-        return;
-    }
-    else
-    {
-        // hmmm what if even after this the capacity is smaller?
-        // FIXME:
-        __db_array_resize((void **)&str);
-    }
-}
-void db_string_free(db_string str)
-{
-    db_array_free(str);
-}
-db_string db_string_duplicate(db_arena *arena, db_string const str)
-{
-    db_string new_str = db_array_duplicate(str);
-    s64       count   = db_array_length(new_str);
-    // hmmm it will be zero there too but lets just me more explicit
-    new_str[count]    = '\0';
-    return new_str;
-}
-s64 db_string_length(db_string const str)
-{
-    db_array_header *header = db_array_get_header(str);
-    ASSERT_WITH_MSG(header != NULL, "String header is NULL");
-    return header->count;
-}
-s64 db_string_capacity(db_string const str)
-{
-    db_array_header *header = db_array_get_header(str);
-    ASSERT_WITH_MSG(header != NULL, "String header is NULL");
-    u64 capacity = header->total_length / header->type_size;
-    return capacity;
-}
-s64 db_string_available_space(db_string const str)
-{
-    db_array_header *header = db_array_get_header(str);
-    ASSERT_WITH_MSG(header != NULL, "String header is NULL");
-    u64 capacity        = db_string_capacity(str);
-    u64 available_space = capacity - header->count;
-    return available_space;
-}
-void db_string_clear(db_string str)
-{
-    db_array_clear(str);
-}
-
-void db_string_append(db_string str, const char *other)
-{
-    s32 len = strlen(other);
-    for (s32 i = 0; i < len; i++)
-    {
-        db_array_append(str, other[i])
-    }
-    u64 count  = db_array_length(str);
-    // hmmm it will be zero there too but lets just me more explicit
-    str[count] = '\0';
-}
-
-void db_string_append_char(db_string str, const char c)
-{
-    u64 count = db_array_length(str);
-    db_array_append(str, c);
-    // hmmm it will be zero there too but lets just me more explicit
-    str[count] = '\0';
-}
-
-// well this looks like for utf8 strings. Well Let me figure that out later
-// db_string db_string_append_rune(db_string str, Rune r);
-// db_string db_string_append_fmt(db_string str, char const *fmt, ...)
-//{
-//    // hmm this is gonna take a bit of time.  I have to make my own (va args) format parser
-//    return 0;
-//}
-void db_string_set(db_string str, char const *cstr)
-{
-    db_string_clear(str);
-    // maybe this is very very bad :)
-    char *c = (char *)cstr;
-    while (*c)
-    {
-        db_array_append(str, *c);
-        c++;
-    }
-    u64 count  = db_array_length(str);
-    // hmmm it will be zero there too but lets just me more explicit
-    str[count] = '\0';
-}
-// hmmmmm I dont think we need this because our arena will automatically scale based on appending
-// void db_string_make_space_for(db_string str, s64 add_len)
-//{
-//}
-
-// s64 db_string_allocation_size(db_string const str)
-//{
+//
+// #define DB_SIZE_T_BITS ((sizeof(size_t)) * 8)
+//
+// #define DB_rotate_left(val, n) (((val) << (n)) | ((val) >> (db_SIZE_T_BITS - (n))))
+// #define DB_rotate_right(val, n) (((val) >> (n)) | ((val) << (db_SIZE_T_BITS - (n))))
+//
+// u64 db_murmur64A_seed(void const *const key, u64 len, u64 seed)
+// {
+//     const u64 m = 0xc6a4a7935bd1e995LLU;
+//     const int r = 47;
+//
+//     u64 h = seed ^ (len * m);
+//
+//     const u64 *data = (const u64 *)key;
+//     const u64 *end  = (len >> 3) + data;
+//
+//     while (data != end)
+//     {
+//         u64 k = *data++;
+//
+//         k *= m;
+//         k ^= k >> r;
+//         k *= m;
+//
+//         h ^= k;
+//         h *= m;
+//     }
+//
+//     const unsigned char *data2 = (const unsigned char *)data;
+//
+//     switch (len & 7)
+//     {
+//         case 7:
+//             h ^= (u64)(data2[6]) << 48;
+//         case 6:
+//             h ^= (u64)(data2[5]) << 40;
+//         case 5:
+//             h ^= (u64)(data2[4]) << 32;
+//         case 4:
+//             h ^= (u64)(data2[3]) << 24;
+//         case 3:
+//             h ^= (u64)(data2[2]) << 16;
+//         case 2:
+//             h ^= (u64)(data2[1]) << 8;
+//         case 1:
+//             h ^= (u64)(data2[0]);
+//             h *= m;
+//     };
+//
+//     h ^= h >> r;
+//     h *= m;
+//     h ^= h >> r;
+//
+//     return h;
 // }
-
-b8 db_strings_are_equal(db_string const lhs, db_string const rhs)
-{
-    u64 lhs_count = db_array_length(lhs);
-    u64 rhs_count = db_array_length(rhs);
-
-    if (lhs_count != rhs_count)
-        return false;
-
-    for (u64 i = 0; i < lhs_count; i++)
-    {
-        if (lhs[i] != rhs[i])
-            return false;
-    }
-
-    return true;
-}
-db_string db_string_trim(db_string str, char const *cut_set)
-{
-    u64 length = db_array_length(str);
-
-    char *start_pos = &str[0];
-    char *end_pos   = &str[length - 1];
-
-    while (start_pos <= end_pos && db_char_first_occurence(cut_set, *start_pos))
-    {
-        start_pos++;
-    }
-
-    while (end_pos >= start_pos && db_char_first_occurence(cut_set, *end_pos))
-    {
-        end_pos--;
-    }
-    //@fix: what if the arena is a pool allocator
-    db_string        new_str    = NULL;
-    db_array_header *str_header = db_array_get_header(str);
-    db_array_init(str_header->shared_arena, new_str);
-    while (start_pos <= end_pos)
-    {
-        db_array_append(new_str, *start_pos);
-        start_pos++;
-    }
-    length          = db_array_length(new_str);
-    new_str[length] = '\0';
-    return new_str;
-}
-/**
- * WHITESPACE REFERENCE:
- * ' ' Space
- * \t  Horizontal Tab
- * \r  Carriage Return (Line start)
- * \n  Line Feed (New line)
- * \v  Vertical Tab
- * \f  Form Feed (Page break) for printers
- */
-db_string db_string_trim_space(db_string str)
-{
-    return db_string_trim(str, " \t\r\n\v\f");
-} // Whitespace ` \t\r\n\v\f`
+//
+// char db_char_to_lower(char c)
+// {
+//     if (c >= 'A' && c <= 'Z')
+//     {
+//         char ret = 'a' + (c - 'A');
+//         return ret;
+//     }
+//     return c;
+// }
+// char db_char_to_upper(char c)
+// {
+//     if (c >= 'a' && c <= 'z')
+//     {
+//         char ret = 'A' + (c - 'a');
+//         return ret;
+//     }
+//     return c;
+// }
+// b8 db_char_is_space(char c)
+// {
+//     if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v')
+//     {
+//         return true;
+//     }
+//     return false;
+// }
+// b8 db_char_is_digit(char c)
+// {
+//     if (c >= '0' && c <= '9')
+//     {
+//         return true;
+//     }
+//     return false;
+// }
+// b8 db_char_is_hex_digit(char c)
+// {
+//     if (db_char_is_digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))
+//     {
+//         return true;
+//     }
+//     return false;
+// }
+// b8 db_char_is_alphabet(char c)
+// {
+//     if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+//     {
+//         return true;
+//     }
+//     return false;
+// }
+// b8 db_char_is_alphanumeric(char c)
+// {
+//     if (db_char_is_alphabet(c) || db_char_is_digit(c))
+//     {
+//         return true;
+//     }
+//     return false;
+// }
+// // hex digit
+// // IF YOU ARE TURNING A HEX INTO A DIGIT THEN:
+// // if its a it will return 10 and so on till f == 15 but if the value is anything plus f, so g,h... it will return
+// // an incorecct value so always call is db_char_is_hex_digit() before calling this.
+// s32 db_digit_to_int(char c)
+// {
+//     if (db_char_is_digit(c))
+//     {
+//         return (c - '0');
+//     }
+//     return (c - 'W');
+// }
+// s32 db_hex_digit_to_int(char c)
+// {
+//     if (db_char_is_digit(c))
+//     {
+//         return db_digit_to_int(c);
+//     }
+//     else if (c <= 'a' && c <= 'f')
+//     {
+//         return 10 + c;
+//     }
+//     else if (c <= 'A' && c <= 'F')
+//     {
+//         return 10 + c;
+//     }
+//     return -1;
+// }
+//
+// void db_str_to_lower(char *str)
+// {
+//     // well if you forget the null terminator then we're kind of fucked
+//     while (*str)
+//     {
+//         *str = db_char_to_lower(*str);
+//         str++;
+//     }
+// }
+// void db_str_to_upper(char *str)
+// {
+//     // well if you forget the null terminator then we're kind of fucked
+//     while (*str)
+//     {
+//         *str = db_char_to_upper(*str);
+//         str++;
+//     }
+// }
+//
+// char const *db_char_first_occurence(char const *str, char c)
+// {
+//     char ch = c;
+//     for (; *str != ch; str++)
+//     {
+//         if (*str == '\0')
+//         {
+//             return NULL;
+//         }
+//     }
+//     return str;
+// }
+// char const *db_char_last_occurence(char const *str, char c)
+// {
+//     char const *result = NULL;
+//     do
+//     {
+//         if (*str == c)
+//         {
+//             result = str;
+//         }
+//     } while (*str++);
+//
+//     return result;
+// }
+//
+// db_string db_string_make(db_arena *arena, char const *a)
+// {
+//     db_string str;
+//     db_array_init(arena, str);
+//     while (*a)
+//     {
+//         db_array_append(str, *a);
+//         a++;
+//     }
+//     s64 count  = db_array_length(str);
+//     // hmmm it will be zero there too but lets just me more explicit
+//     str[count] = '\0';
+//     return str;
+// }
+// void db_string_make_reserve(db_string str, s64 capacity)
+// {
+//     if (db_array_capacity(str) > capacity)
+//     {
+//         return;
+//     }
+//     else
+//     {
+//         // hmmm what if even after this the capacity is smaller?
+//         // FIXME:
+//         __db_array_resize((void **)&str);
+//     }
+// }
+// void db_string_free(db_string str)
+// {
+//     db_array_free(str);
+// }
+// db_string db_string_duplicate(db_arena *arena, db_string const str)
+// {
+//     db_string new_str = db_array_duplicate(str);
+//     s64       count   = db_array_length(new_str);
+//     // hmmm it will be zero there too but lets just me more explicit
+//     new_str[count]    = '\0';
+//     return new_str;
+// }
+// s64 db_string_length(db_string const str)
+// {
+//     db_array_header *header = db_array_get_header(str);
+//     ASSERT_WITH_MSG(header != NULL, "String header is NULL");
+//     return header->count;
+// }
+// s64 db_string_capacity(db_string const str)
+// {
+//     db_array_header *header = db_array_get_header(str);
+//     ASSERT_WITH_MSG(header != NULL, "String header is NULL");
+//     u64 capacity = header->total_length / header->type_size;
+//     return capacity;
+// }
+// s64 db_string_available_space(db_string const str)
+// {
+//     db_array_header *header = db_array_get_header(str);
+//     ASSERT_WITH_MSG(header != NULL, "String header is NULL");
+//     u64 capacity        = db_string_capacity(str);
+//     u64 available_space = capacity - header->count;
+//     return available_space;
+// }
+// void db_string_clear(db_string str)
+// {
+//     db_array_clear(str);
+// }
+//
+// void db_string_append(db_string str, const char *other)
+// {
+//     s32 len = strlen(other);
+//     for (s32 i = 0; i < len; i++)
+//     {
+//         db_array_append(str, other[i])
+//     }
+//     u64 count  = db_array_length(str);
+//     // hmmm it will be zero there too but lets just me more explicit
+//     str[count] = '\0';
+// }
+//
+// void db_string_append_char(db_string str, const char c)
+// {
+//     u64 count = db_array_length(str);
+//     db_array_append(str, c);
+//     // hmmm it will be zero there too but lets just me more explicit
+//     str[count] = '\0';
+// }
+//
+// // well this looks like for utf8 strings. Well Let me figure that out later
+// // db_string db_string_append_rune(db_string str, Rune r);
+// // db_string db_string_append_fmt(db_string str, char const *fmt, ...)
+// //{
+// //    // hmm this is gonna take a bit of time.  I have to make my own (va args) format parser
+// //    return 0;
+// //}
+// void db_string_set(db_string str, char const *cstr)
+// {
+//     db_string_clear(str);
+//     // maybe this is very very bad :)
+//     char *c = (char *)cstr;
+//     while (*c)
+//     {
+//         db_array_append(str, *c);
+//         c++;
+//     }
+//     u64 count  = db_array_length(str);
+//     // hmmm it will be zero there too but lets just me more explicit
+//     str[count] = '\0';
+// }
+// // hmmmmm I dont think we need this because our arena will automatically scale based on appending
+// // void db_string_make_space_for(db_string str, s64 add_len)
+// //{
+// //}
+//
+// // s64 db_string_allocation_size(db_string const str)
+// //{
+// // }
+//
+// b8 db_strings_are_equal(db_string const lhs, db_string const rhs)
+// {
+//     u64 lhs_count = db_array_length(lhs);
+//     u64 rhs_count = db_array_length(rhs);
+//
+//     if (lhs_count != rhs_count)
+//         return false;
+//
+//     for (u64 i = 0; i < lhs_count; i++)
+//     {
+//         if (lhs[i] != rhs[i])
+//             return false;
+//     }
+//
+//     return true;
+// }
+// db_string db_string_trim(db_string str, char const *cut_set)
+// {
+//     u64 length = db_array_length(str);
+//
+//     char *start_pos = &str[0];
+//     char *end_pos   = &str[length - 1];
+//
+//     while (start_pos <= end_pos && db_char_first_occurence(cut_set, *start_pos))
+//     {
+//         start_pos++;
+//     }
+//
+//     while (end_pos >= start_pos && db_char_first_occurence(cut_set, *end_pos))
+//     {
+//         end_pos--;
+//     }
+//     //@fix: what if the arena is a pool allocator
+//     db_string        new_str    = NULL;
+//     db_array_header *str_header = db_array_get_header(str);
+//     db_array_init(str_header->shared_arena, new_str);
+//     while (start_pos <= end_pos)
+//     {
+//         db_array_append(new_str, *start_pos);
+//         start_pos++;
+//     }
+//     length          = db_array_length(new_str);
+//     new_str[length] = '\0';
+//     return new_str;
+// }
+// /**
+//  * WHITESPACE REFERENCE:
+//  * ' ' Space
+//  * \t  Horizontal Tab
+//  * \r  Carriage Return (Line start)
+//  * \n  Line Feed (New line)
+//  * \v  Vertical Tab
+//  * \f  Form Feed (Page break) for printers
+//  */
+// db_string db_string_trim_space(db_string str)
+// {
+//     return db_string_trim(str, " \t\r\n\v\f");
+// } // Whitespace ` \t\r\n\v\f`
 #endif
