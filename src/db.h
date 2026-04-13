@@ -27,7 +27,6 @@
 #define DB_PLATFORM_LINUX
 #include <sanitizer/asan_interface.h>
 #include <sys/mman.h>
-
 #elif __APPLE__
 
 #define DB_PLATFORM_MACOS
@@ -262,9 +261,9 @@ typedef s8 b8;
 
 // thanks google https://github.com/google/sanitizers/wiki/addresssanitizermanualpoisoning
 // user code should use macros instead of functions.
-#if __has_feature(address_sanitizer) || defined(__sanitize_address__)
-// #define asan_poison_memory_region(addr, size) __asan_poison_memory_region((addr), (size))
-// #define asan_unpoison_memory_region(addr, size) __asan_unpoison_memory_region((addr), (size))
+#if __has_feature(address_sanitizer) || defined(__SANITIZE_ADDRESS__)
+#define asan_poison_memory_region(addr, size) __asan_poison_memory_region((addr), (size))
+#define asan_unpoison_memory_region(addr, size) __asan_unpoison_memory_region((addr), (size))
 #else
 #define asan_poison_memory_region(addr, size) ((void)(addr), (void)(size))
 #define asan_unpoison_memory_region(addr, size) ((void)(addr), (void)(size))
@@ -1469,13 +1468,18 @@ db_string db_string_make(db_arena *arena, char const *a)
 
     f32 chunk_count = ceil((f32)len / arena->chunk_size);
 
-    s32 i       = 0;
-    str.data    = db_arena_alloc(arena, arena->chunk_size);
-    char *start = str.data;
-    char *b     = str.data;
-    while (*a)
+    s32 i    = 0;
+    str.data = db_arena_alloc(arena, arena->chunk_size);
+
+    const char *orig  = a;
+    char       *start = str.data;
+    char       *b     = str.data;
+
+    while (*orig)
     {
-        if ((uintptr_t)b - (uintptr_t)start == (arena->chunk_size - sizeof(db_arena_chunk_header)))
+        // -1 because the length that we can write to is arena->chunk_size - 1. Just like in array length
+        // this is cause its 0 -based indexeing
+        if ((uintptr_t)b - (uintptr_t)start == (arena->chunk_size - sizeof(db_arena_chunk_header) - 1))
         {
             db_arena_chunk_header *header = DB_ARENA_CHUNK_HEADER(start);
             while (header->next_chunk)
@@ -1485,8 +1489,8 @@ db_string db_string_make(db_arena *arena, char const *a)
             header->next_chunk = db_arena_alloc(arena, arena->chunk_size);
             b                  = (char *)((uintptr_t)header->next_chunk + sizeof(db_arena_chunk_header));
         }
-        *b = *a;
-        a++;
+        *b = *orig;
+        orig++;
         b++;
     }
     s64 length = len;
@@ -1506,7 +1510,13 @@ char *db_string_get_cstr(db_arena *arena, db_string str)
 
     while (*b)
     {
-        if ((uintptr_t)b - (uintptr_t)start == (str.arena->chunk_size - sizeof(db_arena_chunk_header)))
+        *c = *b;
+        c++;
+        b++;
+
+        // -1 because the length that we can write to is arena->chunk_size - 1. Just like in array length
+        // this is cause its 0 -based indexeing
+        if ((uintptr_t)b - (uintptr_t)start == (str.arena->chunk_size - sizeof(db_arena_chunk_header) - 1))
         {
             db_arena_chunk_header *header = DB_ARENA_CHUNK_HEADER(start);
             if (header->next_chunk)
@@ -1515,9 +1525,6 @@ char *db_string_get_cstr(db_arena *arena, db_string str)
                 b     = start;
             }
         }
-        *c = *b;
-        c++;
-        b++;
     }
     return cpy;
 }
