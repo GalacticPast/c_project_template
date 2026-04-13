@@ -2,9 +2,11 @@
 
 // asci art font : rubi_font https://patorjk.com/software/taag
 
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
 #ifdef _WIN32
 #include <io.h>
 #include <process.h>
@@ -261,8 +263,8 @@ typedef s8 b8;
 // thanks google https://github.com/google/sanitizers/wiki/addresssanitizermanualpoisoning
 // user code should use macros instead of functions.
 #if __has_feature(address_sanitizer) || defined(__sanitize_address__)
-#define asan_poison_memory_region(addr, size) __asan_poison_memory_region((addr), (size))
-#define asan_unpoison_memory_region(addr, size) __asan_unpoison_memory_region((addr), (size))
+// #define asan_poison_memory_region(addr, size) __asan_poison_memory_region((addr), (size))
+// #define asan_unpoison_memory_region(addr, size) __asan_unpoison_memory_region((addr), (size))
 #else
 #define asan_poison_memory_region(addr, size) ((void)(addr), (void)(size))
 #define asan_unpoison_memory_region(addr, size) ((void)(addr), (void)(size))
@@ -337,6 +339,8 @@ typedef struct db_arena
     u32                    chunk_size;
     db_arena_chunk_header *free_list_head;
 } db_arena;
+
+#define DB_ARENA_CHUNK_HEADER(ptr) (db_arena_chunk_header *)((uintptr_t)ptr - sizeof(db_arena_chunk_header))
 
 #define DB_ARENA_DEFAULT_RESERVED_MEMORY MB(64)
 #define DB_ARENA_DEFAULT_COMMITED_MEMORY DB_PAGE_SIZE
@@ -533,6 +537,15 @@ void           __db_array_free(db_array_skeleton *array);
  ▗▄▄▞▘  █ ▐▌ ▐▌▝▚▄▄▖▐▌ ▐▌
 
 // */
+typedef struct db_stack_skeleton
+{
+    s64       total_length;
+    s64       length;
+    s64       type_size;
+    db_arena *arena;
+    void     *data;
+} db_stack_skeleton;
+
 #define db_stack_decl(name, Type)                                                                                      \
     typedef struct db_stack_##name                                                                                     \
     {                                                                                                                  \
@@ -659,6 +672,7 @@ typedef struct db_string
 {
     s64       length;
     db_arena *arena;
+    char     *data;
 } db_string;
 
 char *db_string_get_first_occurence(const char *str, const char *sub);
@@ -677,6 +691,7 @@ void      db_string_append_char(db_string str, const char c);
 b8        db_strings_are_equal(db_string const lhs, db_string const rhs);
 db_string db_string_trim(db_string str, char const *cut_set);
 db_string db_string_trim_space(db_string str); // Whitespace ` \t\r\n\v\f`
+char     *db_string_get_cstr(db_arena *arena, db_string str);
 
 char *db_string_get_c_str(db_arena *arena); // has to be a linear one
 
@@ -1068,7 +1083,6 @@ void *db_arena_alloc(db_arena *arena, size_t size)
     {
         db_arena_chunk_header *header = arena->free_list_head;
         ret_mem                       = (void *)((uintptr_t)header + sizeof(db_arena_chunk_header));
-        asan_unpoison_memory_region(ret_mem, DB_PAGE_SIZE);
         DB_ALIGN_TO_MULTIPLE((uintptr_t)ret_mem, DB_DEFAULT_MEMORY_ALIGNEMENT);
 
         arena->free_list_head = header->next_chunk;
@@ -1078,6 +1092,7 @@ void *db_arena_alloc(db_arena *arena, size_t size)
         ASSERT((uintptr_t)header + sizeof(db_arena_chunk_header) == (uintptr_t)ret_mem);
 
         arena->allocated_chunk_count++;
+        asan_unpoison_memory_region(ret_mem, arena->chunk_size);
     }
     ASSERT_WITH_MSG(ret_mem, "ARENA ALLOCATION FAILEDD!!!! WHYYY");
     return ret_mem;
@@ -1208,6 +1223,52 @@ void __db_array_free(db_array_skeleton *array)
     array->length       = 0;
     array->type_size    = 0;
     array->data         = NULL;
+    // does absolutely nothing actually
+    // print warning
+    printf("WHY ARE YOU MANNUALLY FREEING UP MEMORY???????\n");
+    ASSERT_WITH_MSG(false, "I DID THIS JUST TO PISS YOU OFFF");
+}
+
+db_return_code __db_stack_init(db_arena *shared_arena, db_stack_skeleton *array, size_t type_size)
+{
+    // maybe a bit wasteful but we've already commited this much isnt it?
+    size_t stack_size = DB_ARRAY_DEFAULT_ALLOCATION_BUCKETS * type_size;
+    if (stack_size >= DB_PAGE_SIZE)
+    {
+        printf("The stack you are initializing is already bigger than the page size on your os. You might consider "
+               "using the big array for this one cheif.\n");
+    }
+    stack_size = DB_ALIGN_TO_MULTIPLE(stack_size, DB_DEFAULT_MEMORY_ALIGNEMENT);
+
+    void *memory = db_arena_alloc(shared_arena, stack_size);
+
+    array->total_length = stack_size / type_size;
+    array->length       = 0;
+    array->type_size    = type_size;
+    array->arena        = shared_arena;
+    array->data         = memory;
+    return DB_SUCCESS;
+}
+
+db_return_code __db_stack_resize(db_stack_skeleton *stack)
+{
+    ASSERT(stack != NULL);
+
+    size_t new_size = stack->total_length * DB_ARRAY_DEFAULT_RESIZE_FACTOR;
+    void  *new_mem  = db_arena_alloc(stack->arena, new_size * stack->type_size);
+    memcpy(new_mem, stack->data, stack->length * stack->type_size);
+    stack->data          = new_mem;
+    stack->total_length += new_size;
+    return DB_SUCCESS;
+}
+
+void __db_stack_free(db_stack_skeleton *stack)
+{
+    ASSERT(stack != NULL);
+    stack->total_length = 0;
+    stack->length       = 0;
+    stack->type_size    = 0;
+    stack->data         = NULL;
     // does absolutely nothing actually
     // print warning
     printf("WHY ARE YOU MANNUALLY FREEING UP MEMORY???????\n");
@@ -1403,176 +1464,220 @@ char const *db_char_last_occurence(char const *str, char c)
 
 db_string db_string_make(db_arena *arena, char const *a)
 {
-    db_string str;
+    db_string str = {.arena = arena, .length = 0, .data = NULL};
     s32       len = strlen(a);
 
+    f32 chunk_count = ceil((f32)len / arena->chunk_size);
+
+    s32 i       = 0;
+    str.data    = db_arena_alloc(arena, arena->chunk_size);
+    char *start = str.data;
+    char *b     = str.data;
     while (*a)
     {
-        db_array_append(str, *a);
+        if ((uintptr_t)b - (uintptr_t)start == (arena->chunk_size - sizeof(db_arena_chunk_header)))
+        {
+            db_arena_chunk_header *header = DB_ARENA_CHUNK_HEADER(start);
+            while (header->next_chunk)
+            {
+                header = (db_arena_chunk_header *)(uintptr_t)header + arena->chunk_size;
+            }
+            header->next_chunk = db_arena_alloc(arena, arena->chunk_size);
+            b                  = (char *)((uintptr_t)header->next_chunk + sizeof(db_arena_chunk_header));
+        }
+        *b = *a;
         a++;
+        b++;
     }
-    s64 count  = db_array_length(str);
+    s64 length = len;
     // hmmm it will be zero there too but lets just me more explicit
-    str[count] = '\0';
+    *b         = '\0';
+    str.length = length;
     return str;
 }
+
+char *db_string_get_cstr(db_arena *arena, db_string str)
+{
+    ASSERT_WITH_MSG(arena->type == TYPE_ARENA_LINEAR, "Cannot pass a cstr with a chunked arena");
+    char *cpy   = db_arena_alloc(arena, str.length);
+    char *c     = cpy;
+    char *start = str.data;
+    char *b     = str.data;
+
+    while (*b)
+    {
+        if ((uintptr_t)b - (uintptr_t)start == (str.arena->chunk_size - sizeof(db_arena_chunk_header)))
+        {
+            db_arena_chunk_header *header = DB_ARENA_CHUNK_HEADER(start);
+            if (header->next_chunk)
+            {
+                start = (char *)((uintptr_t)header->next_chunk + sizeof(db_arena_chunk_header));
+                b     = start;
+            }
+        }
+        *c = *b;
+        c++;
+        b++;
+    }
+    return cpy;
+}
+
+// hmmm what if we had already allocated n chunks before
 void db_string_make_reserve(db_string str, s64 capacity)
 {
-    if (db_array_capacity(str) > capacity)
+    if (str.arena->chunk_size > capacity)
     {
         return;
     }
     else
     {
-        // hmmm what if even after this the capacity is smaller?
-        // FIXME:
-        __db_array_resize((void **)&str);
+        u32 chunk_count = capacity / str.arena->chunk_size;
     }
 }
-void db_string_free(db_string str)
-{
-    db_array_free(str);
-}
-db_string db_string_duplicate(db_arena *arena, db_string const str)
-{
-    db_string new_str = db_array_duplicate(str);
-    s64       count   = db_array_length(new_str);
-    // hmmm it will be zero there too but lets just me more explicit
-    new_str[count]    = '\0';
-    return new_str;
-}
-s64 db_string_length(db_string const str)
-{
-    db_array_header *header = db_array_get_header(str);
-    ASSERT_WITH_MSG(header != NULL, "String header is NULL");
-    return header->count;
-}
-s64 db_string_capacity(db_string const str)
-{
-    db_array_header *header = db_array_get_header(str);
-    ASSERT_WITH_MSG(header != NULL, "String header is NULL");
-    u64 capacity = header->total_length / header->type_size;
-    return capacity;
-}
-s64 db_string_available_space(db_string const str)
-{
-    db_array_header *header = db_array_get_header(str);
-    ASSERT_WITH_MSG(header != NULL, "String header is NULL");
-    u64 capacity        = db_string_capacity(str);
-    u64 available_space = capacity - header->count;
-    return available_space;
-}
-void db_string_clear(db_string str)
-{
-    db_array_clear(str);
-}
-
-void db_string_append(db_string str, const char *other)
-{
-    s32 len = strlen(other);
-    for (s32 i = 0; i < len; i++)
-    {
-        db_array_append(str, other[i])
-    }
-    u64 count  = db_array_length(str);
-    // hmmm it will be zero there too but lets just me more explicit
-    str[count] = '\0';
-}
-
-void db_string_append_char(db_string str, const char c)
-{
-    u64 count = db_array_length(str);
-    db_array_append(str, c);
-    // hmmm it will be zero there too but lets just me more explicit
-    str[count] = '\0';
-}
-
-// well this looks like for utf8 strings. Well Let me figure that out later
-// db_string db_string_append_rune(db_string str, Rune r);
-// db_string db_string_append_fmt(db_string str, char const *fmt, ...)
-//{
-//    // hmm this is gonna take a bit of time.  I have to make my own (va args) format parser
-//    return 0;
-//}
-void db_string_set(db_string str, char const *cstr)
-{
-    db_string_clear(str);
-    // maybe this is very very bad :)
-    char *c = (char *)cstr;
-    while (*c)
-    {
-        db_array_append(str, *c);
-        c++;
-    }
-    u64 count  = db_array_length(str);
-    // hmmm it will be zero there too but lets just me more explicit
-    str[count] = '\0';
-}
-// hmmmmm I dont think we need this because our arena will automatically scale based on appending
-// void db_string_make_space_for(db_string str, s64 add_len)
-//{
-//}
-
-// s64 db_string_allocation_size(db_string const str)
-//{
+// void db_string_free(db_string str)
+// {
+//     db_array_free(str);
 // }
-
-b8 db_strings_are_equal(db_string const lhs, db_string const rhs)
-{
-    u64 lhs_count = db_array_length(lhs);
-    u64 rhs_count = db_array_length(rhs);
-
-    if (lhs_count != rhs_count)
-        return false;
-
-    for (u64 i = 0; i < lhs_count; i++)
-    {
-        if (lhs[i] != rhs[i])
-            return false;
-    }
-
-    return true;
-}
-db_string db_string_trim(db_string str, char const *cut_set)
-{
-    u64 length = db_array_length(str);
-
-    char *start_pos = &str[0];
-    char *end_pos   = &str[length - 1];
-
-    while (start_pos <= end_pos && db_char_first_occurence(cut_set, *start_pos))
-    {
-        start_pos++;
-    }
-
-    while (end_pos >= start_pos && db_char_first_occurence(cut_set, *end_pos))
-    {
-        end_pos--;
-    }
-    //@fix: what if the arena is a pool allocator
-    db_string        new_str    = NULL;
-    db_array_header *str_header = db_array_get_header(str);
-    db_array_init(str_header->shared_arena, new_str);
-    while (start_pos <= end_pos)
-    {
-        db_array_append(new_str, *start_pos);
-        start_pos++;
-    }
-    length          = db_array_length(new_str);
-    new_str[length] = '\0';
-    return new_str;
-}
-/**
- * WHITESPACE REFERENCE:
- * ' ' Space
- * \t  Horizontal Tab
- * \r  Carriage Return (Line start)
- * \n  Line Feed (New line)
- * \v  Vertical Tab
- * \f  Form Feed (Page break) for printers
- */
-db_string db_string_trim_space(db_string str)
-{
-    return db_string_trim(str, " \t\r\n\v\f");
-} // Whitespace ` \t\r\n\v\f`
+// db_string db_string_duplicate(db_arena *arena, db_string const str)
+// {
+//     db_string new_str = db_array_duplicate(str);
+//     s64       count   = db_array_length(new_str);
+//     // hmmm it will be zero there too but lets just me more explicit
+//     new_str[count]    = '\0';
+//     return new_str;
+// }
+// s64 db_string_length(db_string const str)
+// {
+//     db_array_header *header = db_array_get_header(str);
+//     ASSERT_WITH_MSG(header != NULL, "String header is NULL");
+//     return header->count;
+// }
+// s64 db_string_capacity(db_string const str)
+// {
+//     db_array_header *header = db_array_get_header(str);
+//     ASSERT_WITH_MSG(header != NULL, "String header is NULL");
+//     u64 capacity = header->total_length / header->type_size;
+//     return capacity;
+// }
+// s64 db_string_available_space(db_string const str)
+// {
+//     db_array_header *header = db_array_get_header(str);
+//     ASSERT_WITH_MSG(header != NULL, "String header is NULL");
+//     u64 capacity        = db_string_capacity(str);
+//     u64 available_space = capacity - header->count;
+//     return available_space;
+// }
+// void db_string_clear(db_string str)
+// {
+//     db_array_clear(str);
+// }
+//
+// void db_string_append(db_string str, const char *other)
+// {
+//     s32 len = strlen(other);
+//     for (s32 i = 0; i < len; i++)
+//     {
+//         db_array_append(str, other[i])
+//     }
+//     u64 count  = db_array_length(str);
+//     // hmmm it will be zero there too but lets just me more explicit
+//     str[count] = '\0';
+// }
+//
+// void db_string_append_char(db_string str, const char c)
+// {
+//     u64 count = db_array_length(str);
+//     db_array_append(str, c);
+//     // hmmm it will be zero there too but lets just me more explicit
+//     str[count] = '\0';
+// }
+//
+// // well this looks like for utf8 strings. Well Let me figure that out later
+// // db_string db_string_append_rune(db_string str, Rune r);
+// // db_string db_string_append_fmt(db_string str, char const *fmt, ...)
+// //{
+// //    // hmm this is gonna take a bit of time.  I have to make my own (va args) format parser
+// //    return 0;
+// //}
+// void db_string_set(db_string str, char const *cstr)
+// {
+//     db_string_clear(str);
+//     // maybe this is very very bad :)
+//     char *c = (char *)cstr;
+//     while (*c)
+//     {
+//         db_array_append(str, *c);
+//         c++;
+//     }
+//     u64 count  = db_array_length(str);
+//     // hmmm it will be zero there too but lets just me more explicit
+//     str[count] = '\0';
+// }
+// // hmmmmm I dont think we need this because our arena will automatically scale based on appending
+// // void db_string_make_space_for(db_string str, s64 add_len)
+// //{
+// //}
+//
+// // s64 db_string_allocation_size(db_string const str)
+// //{
+// // }
+//
+// b8 db_strings_are_equal(db_string const lhs, db_string const rhs)
+// {
+//     u64 lhs_count = db_array_length(lhs);
+//     u64 rhs_count = db_array_length(rhs);
+//
+//     if (lhs_count != rhs_count)
+//         return false;
+//
+//     for (u64 i = 0; i < lhs_count; i++)
+//     {
+//         if (lhs[i] != rhs[i])
+//             return false;
+//     }
+//
+//     return true;
+// }
+// db_string db_string_trim(db_string str, char const *cut_set)
+// {
+//     u64 length = db_array_length(str);
+//
+//     char *start_pos = &str[0];
+//     char *end_pos   = &str[length - 1];
+//
+//     while (start_pos <= end_pos && db_char_first_occurence(cut_set, *start_pos))
+//     {
+//         start_pos++;
+//     }
+//
+//     while (end_pos >= start_pos && db_char_first_occurence(cut_set, *end_pos))
+//     {
+//         end_pos--;
+//     }
+//     //@fix: what if the arena is a pool allocator
+//     db_string        new_str    = NULL;
+//     db_array_header *str_header = db_array_get_header(str);
+//     db_array_init(str_header->shared_arena, new_str);
+//     while (start_pos <= end_pos)
+//     {
+//         db_array_append(new_str, *start_pos);
+//         start_pos++;
+//     }
+//     length          = db_array_length(new_str);
+//     new_str[length] = '\0';
+//     return new_str;
+// }
+// /**
+//  * WHITESPACE REFERENCE:
+//  * ' ' Space
+//  * \t  Horizontal Tab
+//  * \r  Carriage Return (Line start)
+//  * \n  Line Feed (New line)
+//  * \v  Vertical Tab
+//  * \f  Form Feed (Page break) for printers
+//  */
+// db_string db_string_trim_space(db_string str)
+// {
+//     return db_string_trim(str, " \t\r\n\v\f");
+// } // Whitespace ` \t\r\n\v\f`
 #endif
