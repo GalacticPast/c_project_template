@@ -9,6 +9,9 @@ int main()
         &arena,
         "                                                                                                    Hello "
         "World   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+
+    db_arena_chunk_header *header = DB_ARENA_CHUNK_HEADER(str.data);
+
     printf("%s\n", db_string_get_cstr(&main_arena, &str));
     db_string trimmed_str = db_string_trim(&str, "abc!");
     printf("%s\n", db_string_get_cstr(&main_arena, &trimmed_str));
